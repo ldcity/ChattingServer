@@ -1,0 +1,4 @@
+PacketType,Field1,FieldType1,Field2,FieldType2,Field3,FieldType3,Field4,FieldType4,Field5,FieldType5,Field6,FieldType6
+en_PACKET_CS_CHAT_RES_LOGIN,Type,WORD,Status,BYTE,AccountNo,INT64,,,,,,
+en_PACKET_CS_CHAT_RES_SECTOR_MOVE,Type,WORD,AccountNo,INT64,SectorX,WORD,SectorY,WORD,,,,
+en_PACKET_CS_CHAT_RES_MESSAGE,Type,WORD,AccountNo,INT64,ID[20],WCHAR,Nickname[20],WCHAR,MessageLen,WORD,Message[MessageLen / 2],WCHAR
