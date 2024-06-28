@@ -527,30 +527,31 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 	player->recvLastTime = timeGetTime();
 
 	m_mapPlayer.erase(player->sessionID);								// 전체 Player 관리 map에서 해당 player 삭제
+	m_accountNo.erase(player->accountNo);
 
-	auto accountIter = m_accountNo.equal_range(player->accountNo);		// 중복 계정이 있을 경우, 단일 iterator가 나오지 않음
+	//auto accountIter = m_accountNo.equal_range(player->accountNo);		// 중복 계정이 있을 경우, 단일 iterator가 나오지 않음
 
-	for (; accountIter.first != accountIter.second;)
-	{
-		// 이 중복건에 대해서는 (acocuntNo는 같으나 sessionID가 다름)
-		if (player->sessionID != accountIter.first->second)
-		{
-			chatLog->logger(dfLOG_LEVEL_DEBUG, __LINE__, L"DeletePlayer # duplicated > prevID : %016llx\tcurID : %016llx\tprevAccountNo : %IId\tcurAccountNo : %IId",
-				accountIter.first->second, player->sessionID, accountIter.first->first, player->accountNo);
-			++accountIter.first;
-		}
-		else
-		{
-			// 중복 건에서 이전 삭제해야할 계정을 삭제
-			accountIter.first = m_accountNo.erase(accountIter.first);
+	//for (; accountIter.first != accountIter.second;)
+	//{
+	//	// 이 중복건에 대해서는 (acocuntNo는 같으나 sessionID가 다름)
+	//	if (player->sessionID != accountIter.first->second)
+	//	{
+	//		chatLog->logger(dfLOG_LEVEL_DEBUG, __LINE__, L"DeletePlayer # duplicated > prevID : %016llx\tcurID : %016llx\tprevAccountNo : %IId\tcurAccountNo : %IId",
+	//			accountIter.first->second, player->sessionID, accountIter.first->first, player->accountNo);
+	//		++accountIter.first;
+	//	}
+	//	else
+	//	{
+	//		// 중복 건에서 이전 삭제해야할 계정을 삭제
+	//		accountIter.first = m_accountNo.erase(accountIter.first);
 
-			InterlockedDecrement64(&m_loginPlayerCnt);
-			InterlockedIncrement64(&m_deletePlayerCnt);
-			InterlockedIncrement64(&m_deletePlayerTPS);
+	//		InterlockedDecrement64(&m_loginPlayerCnt);
+	//		InterlockedIncrement64(&m_deletePlayerCnt);
+	//		InterlockedIncrement64(&m_deletePlayerTPS);
 
-			break;
-		}
-	}
+	//		break;
+	//	}
+	//}
 
 	playerPool.Free(player);		// PlayerPool에 player 반환
 
@@ -592,10 +593,18 @@ void ChatServer::netPacketProc_Login(uint64_t sessionID, CPacket* packet)
 	else
 	{
 		// Player accountNo 중복 체크 (중복 로그인 확인)
-		CheckPlayer(player, _accountNo);
+		if (!CheckPlayer(player, _accountNo))
+		{
+			m_accountNo.erase(_accountNo);
+			DisconnectSession(sessionID);
+			return;
+		}
 
 		// 계정 관리 map에 accountNo insert
-		m_accountNo.insert({ _accountNo, sessionID });			
+		//m_accountNo.insert({ _accountNo, sessionID });			
+
+		// 계정 관리 set에 accountNo insert
+		m_accountNo.insert({ _accountNo });
 
 		player->recvLastTime = timeGetTime();
 		player->accountNo = _accountNo;

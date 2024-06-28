@@ -64,6 +64,7 @@ NetServer::~NetServer()
 
 bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerThreadCnt, int runningWorkerThreadCnt, bool nagelOff, bool zeroCopyOff, int maxAcceptCnt, unsigned char packet_code, unsigned char packet_key, DWORD timeout)
 {
+
 	// 서버의 현재 시간
 	// 세션들이 서버의 현재 시간을 기준으로 타임아웃 됐는지 판별하기 위해 필요
 	mServerTime = timeGetTime();
@@ -266,7 +267,7 @@ bool NetServer::AcceptThread_serv()
 
 			continue;
 		}
-		
+
 		// accept 수
 		InterlockedIncrement64(&acceptTPS);
 		InterlockedIncrement64(&acceptCount);
@@ -297,7 +298,7 @@ bool NetServer::AcceptThread_serv()
 
 		session->IP_num = 0;
 		session->PORT = 0;
-		
+
 		session->m_socketClient = clientSocket;
 		wcscpy_s(session->IP_str, _countof(session->IP_str), szClientIP);
 		session->PORT = ntohs(clientAddr.sin_port);
@@ -350,7 +351,7 @@ bool NetServer::mWorkerThread_serv()
 	BOOL bSuccess = true;
 	long cbTransferred = 0;
 	LPOVERLAPPED pOverlapped = nullptr;
-	
+
 	bool completionOK;
 
 	while (true)
@@ -375,7 +376,7 @@ bool NetServer::mWorkerThread_serv()
 			PostQueuedCompletionStatus(IOCPHandle, 0, 0, 0);
 			logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"worker # iocp error %d", iocpError);
 
-			break;	
+			break;
 		}
 
 		// SendPost 작업이 PQCS로 들어왔을 경우 
@@ -388,9 +389,20 @@ bool NetServer::mWorkerThread_serv()
 			if (pSession->sendQ.GetSize() > 0)
 				SendPost(pSession);
 		}
+		// SendPost 작업을 한 이후, 일정 시간이 지나면 연결을 끊음
+		else if (cbTransferred == 0 && (unsigned char)pOverlapped == PQCSTYPE::SENDPOSTDICONN)
+		{
+			// WSASend 1회 제한을 하기 위한 sendFlag를 다시 송신 가능 상태로 변경시킴
+			InterlockedExchange8((char*)&pSession->sendFlag, false);
+
+			// 다른 IOCP worker thread에 의해서 dequeue되어 sendQ가 비어버리면 함수에 진입할 필요가 없음
+			if (pSession->sendQ.GetSize() > 0)
+				SendPostReservedDisconnect(pSession);
+		}
 		// Release 작업이 PQCS로 들어왔을 경우 
 		else if (cbTransferred == 0 && (unsigned char)pOverlapped == PQCSTYPE::RELEASE)
 		{
+			// PRO_END(L"PQCS_Release");
 			// ioRefCount가 0인 경우에 PQCS를 호출한 것이기 때문에 이 시점에 ioRefCount는 0임
 			// -> continue로 넘겨야 하단에 ioRefCount를 감소시키는 로직 skip 가능
 			ReleaseSession(pSession);
@@ -405,6 +417,12 @@ bool NetServer::mWorkerThread_serv()
 		else if (pOverlapped == &pSession->m_stSendOverlapped && cbTransferred > 0)
 		{
 			completionOK = SendProc(pSession, cbTransferred);
+		}
+		// 컨텐츠 로직에서 PQCS로 job 요청
+		else if (cbTransferred == PQCSJobType && pOverlapped != nullptr)
+		{
+			CPacket* packet = (CPacket*)pOverlapped;
+			OnJob(pSession->sessionID, packet);
 		}
 
 		// I/O 완료 통지가 더이상 없다면 세션 해제 작업
@@ -653,7 +671,7 @@ bool NetServer::RecvPost(stSESSION* pSession)
 		if (recvError != WSA_IO_PENDING)
 		{
 			if (recvError != ERROR_10054 && recvError != ERROR_10058 && recvError != ERROR_10060)
-			{	
+			{
 				// 에러				
 				OnError(recvError, L"RecvPost # WSARecv Error\n");
 			}
@@ -669,7 +687,7 @@ bool NetServer::RecvPost(stSESSION* pSession)
 		else
 		{
 			InterlockedIncrement64(&recvPendingTPS);
-			
+
 			// Pending 걸렸는데, 이 시점에 disconnect되면 이 때 남아있던 비동기 io 정리해줘야함
 			if (pSession->isDisconnected)
 			{
@@ -710,8 +728,12 @@ bool NetServer::SendPost(stSESSION* pSession)
 			// -> 그렇지 않을 경우, sendpacket 오는대로 계속 PQCS 호출하게 되어 성능이 좋지 않을 수 있음  
 			if (pSession->sendFlag == false)
 			{
+//				SendPost(pSession);
+
+				// 미전송 상태에서 전송 상태로 변겅
 				if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
 				{
+					// SendPost 작업을 하기 전까지 해당 Session이 살아 있어야 하므로 참조 카운트 증가
 					InterlockedIncrement64(&pSession->ioRefCount);
 					PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
 				}
@@ -758,6 +780,7 @@ bool NetServer::SendPost(stSESSION* pSession)
 		// default error는 무시
 		if (sendError != WSA_IO_PENDING)
 		{
+			// PRO_END(L"WSASend");
 			if (sendError != ERROR_10054 && sendError != ERROR_10058 && sendError != ERROR_10060)
 			{
 				OnError(sendError, L"SendPost # WSASend Error\n");
@@ -778,8 +801,249 @@ bool NetServer::SendPost(stSESSION* pSession)
 	return true;
 }
 
+// 송신 등록 - Packet 전송 후, 일정 시간이 지나면 연결을 끊어줌
+bool NetServer::SendPostReservedDisconnect(stSESSION* pSession)
+{
+	// 1회 송신 제한을 위한 flag 확인 (send 함수 호출하는 작업 자체가 느리기 때문에 call 횟수를 줄이기 위해 사용)
+	// false 면 미송신 상태이므로 send 작업 진행
+	// true 면 송신 중이므로 완료 통지가 오기 전까지 send 작업을 하면 안됨
+	if ((pSession->sendFlag == true) || true == InterlockedExchange8((char*)&pSession->sendFlag, true))
+		return false;
+
+	// 다른 스레드에서 Dequeue 진행했을 경우 SendQ가 비어버릴 수 있음
+	if (pSession->sendQ.GetSize() <= 0)
+	{
+		// * 문제가 일어날 수 있는 상황
+		// 다른 스레드에서 dequeue를 전부 해서 size가 0이 되어 이 조건문에 진입한건데
+		// 이 위치에서 또다른 스레드에서 패킷이 enqueue되고 sendpost가 일어나게 되면
+		// 아직 sendFlag가 false로 변경되지 않은 상태이기 때문에 sendpost 함수 상단 조건에 걸려 빠져나가게 됨
+		// 그 후, 이 스레드로 다시 돌아오게 될 경우, 
+		// sendQ에 패킷이 있는 상태이므로 sendFlas를 false로 바꿔주기만 하고 리턴하는게 아니라
+		// 한번 더 sendQ의 size 확인 후 sendpost PQCS 날릴 지 결정해야 함
+		InterlockedExchange8((char*)&pSession->sendFlag, false);
+
+		// 그 사이에 SendQ에 Enqueue 됐다면 다시 SendPost Call 
+		if (pSession->sendQ.GetSize() > 0)
+		{
+			// sendpost 함수 내에서 send call을 1회 제한함
+			// sendpost 함수를 호출하기 위한 PQCS도 1회 제한을 둬야 성능 개선됨
+			// -> 그렇지 않을 경우, sendpacket 오는대로 계속 PQCS 호출하게 되어 성능이 좋지 않을 수 있음 
+			if (pSession->sendFlag == false)
+			{
+				if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
+				{
+					InterlockedIncrement64(&pSession->ioRefCount);
+					PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOSTDICONN);
+				}
+			}
+		}
+		return false;
+	}
+
+	// 링버퍼 등록을 위한 변수
+	WSABUF wsa[MAX_WSA_BUF] = { 0 };
+	int deqIdx = 0;
+
+	// sendQ에 쌓인 패킷들을 Dequeue하여 송신용 패킷 배열로 얻어옴
+	while (pSession->sendQ.Dequeue(pSession->SendPackets[deqIdx]))
+	{
+		// 얻은 패킷을 WSABUF에 셋팅
+		wsa[deqIdx].buf = pSession->SendPackets[deqIdx]->GetNetBufferPtr();
+		wsa[deqIdx].len = pSession->SendPackets[deqIdx]->GetNetDataSize();
+
+		deqIdx++;
+
+		// WSABUF 전송 최대 갯수만큼 담음
+		if (deqIdx >= MAX_WSA_BUF) break;
+	}
+
+	// 완료 통지 시, PacketPool에 반환할 패킷 갯수
+	pSession->sendPacketCount = deqIdx;
+
+	// send overlapped I/O 구조체 reset
+	ZeroMemory(&pSession->m_stSendOverlapped, sizeof(OVERLAPPED));
+
+	// send disconnect flag 올림 
+	// 해당 flag가 올라가 있으면 예약종료 해야하는 Session이란 뜻이므로
+	// 패킷이 수신돼도 timeout 주기를 업데이트하지 않음
+	// -> Timeout Thread에서 timeout 된 걸 확인 후, 해당 flag보고 disconnect 처리
+	InterlockedExchange8((char*)&pSession->sendDisconnFlag, true);
+
+	// send 전에 타임아웃 주기 업데이트
+	SetTimeout(pSession, pSession->Timeout);
+
+	// send
+	// ioCount : WSASend 완료 통지가 리턴보다 먼저 떨어질 수 있으므로 WSASend 호출 전에 증가시켜야 함
+	InterlockedIncrement64(&pSession->ioRefCount);
+	int sendRet = WSASend(pSession->m_socketClient, wsa, deqIdx, NULL, 0, &pSession->m_stSendOverlapped, NULL);
+	InterlockedIncrement64(&sendCallCount);
+	InterlockedIncrement64(&sendCallTPS);
+
+	// 예외처리
+	if (sendRet == SOCKET_ERROR)
+	{
+		int sendError = WSAGetLastError();
+
+		// default error는 무시
+		if (sendError != WSA_IO_PENDING)
+		{
+			if (sendError != ERROR_10054 && sendError != ERROR_10058 && sendError != ERROR_10060)
+				OnError(sendError, L"SendPost # WSASend Error\n");
+
+			// Pending이 아닐 경우, 완료 통지 실패 -> IOCount값 복원
+			if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+				ReleaseSession(pSession);
+
+			return false;
+		}
+		else InterlockedIncrement64(&sendPendingTPS);
+	}
+
+	return true;
+}
+
+// Packet 전송 후, 일정 시간이 지나면 연결을 끊어줌
+bool NetServer::SendPacketAndDisconnect(uint64_t sessionID, CPacket* packet, DWORD timeout)
+{
+	// Session Index를 찾을 후 Session 얻음
+	int index = GetSessionIndex(sessionID);
+	if (index < 0 || index >= mMaxAcceptCount) return false;
+
+	stSESSION* pSession = &SessionArray[index];
+	if (pSession == nullptr) return false;
+
+	// 세션 사용 참조카운트 증가와 현재 세션이 Release 중인지 동시 확인 (인터락 연산으로 원자적 연산 보장)
+	// Release 비트값이 1(ioRefCount에서 상위 31bit 위치를 Release flag처럼 사용)이면 Release 작업 진행 중이라는 의미
+	// 어처피 다시 release가서 해제될 세션이므로 ioRefCount 감소 안해도 됨
+	if ((InterlockedIncrement64(&pSession->ioRefCount) & RELEASEMASKING)) return false;
+
+	// ------------------------------------------------------------------------------------
+	// 이때부터는 Release 함수 진입도 못하고 온전히 SendPacket 과정을 진행할 수 있음
+
+	// 해당 세션이 맞는지 다시 확인 (다른 곳에서 세션 해제 & 할당되어, 다른 세션이 됐을 수도 있음)
+	// 해당 세션이 아닐 경우, 이전에 증가했던 ioCount를 되돌려놔야 함 (되돌리지 않으면 재할당 세션의 io가 0이 될 수가 없음)
+	if (sessionID != pSession->sessionID)
+	{
+		// 외부 컨텐츠 로직의 성능 개선을 위해 Release 함수 처리도 PQCS 함수를 호출하여 비동기적으로 진행
+		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+			ReleasePQCS(pSession);
+
+		return false;
+	}
+
+	// 외부 컨텐츠에서 disconnect 하는 상태
+	if (pSession->isDisconnected)
+	{
+		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+			ReleasePQCS(pSession);
+		return false;
+	}
+
+	// 헤더 셋팅 & 인코딩
+	packet->Encoding();
+
+	// Enqueue한 패킷은 Dequeue하기 전까지 해제되면 안되기 때문에 패킷 참조카운트 증가 -> Dequeue할 때 감소
+	packet->addRefCnt();
+
+	// packet 포인터를 SendQ에 enqueue
+	pSession->sendQ.Enqueue(packet);
+
+	// sendpost 함수 내에서 send call을 1회 제한함
+	// sendpost 함수를 호출하기 위한 PQCS도 1회 제한을 둬야 성능 개선됨
+	// -> 그렇지 않을 경우, sendpacket 오는대로 계속 PQCS 호출하게 되어 성능이 생각한대로 안나올 수 있음 
+	if (pSession->sendFlag == false)
+	{
+		if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
+		{
+			InterlockedIncrement64(&pSession->ioRefCount);
+
+			// 해당 세션의 Timeout 설정 
+			InterlockedExchange(&pSession->Timeout, timeout);
+
+			// PQCS Call
+			PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOSTDICONN);
+		}
+	}
+
+	// sendPacket 함수에서 증가시킨 세션 참조 카운트 감소
+	if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+	{
+		ReleasePQCS(pSession);
+
+		return false;
+	}
+}
+
+// 외부에서 job 요청
+void NetServer::JobPQCS(uint64_t sessionID, CPacket* packet)
+{
+	// find session할 때도 io 참조카운트 증가시켜서 보장받아야함	
+	// index 찾기 -> out of indexing 예외 처리
+	int index = GetSessionIndex(sessionID);
+	if (index < 0 || index >= mMaxAcceptCount)
+	{
+		return;
+	}
+
+	stSESSION* pSession = &SessionArray[index];
+
+	if (pSession == nullptr)
+	{
+		return;
+	}
+
+	// 세션 사용 참조카운트 증가 & Release 중인지 동시 확인
+	// Release 비트값이 1이면 ReleaseSession 함수에서 ioCount = 0, releaseFlag = 1 인 상태
+	// -> 이 사이에 Release 함수에서 ioCount도 0인걸 확인한 상태임 (decrement 안해도 됨)
+	if ((InterlockedIncrement64(&pSession->ioRefCount) & RELEASEMASKING))
+	{
+		return;
+	}
+
+	// ------------------------------------------------------------------------------------
+	// Release 수행 없이 이곳에서만 세션 사용하려는 상태
+
+	// 내 세션이 맞는지 다시 확인 (다른 곳에서 세션 해제 & 할당되어, 다른 세션이 됐을 수도 있음)
+	// 내 세션이 아닐 경우, 이전에 증가했던 ioCount를 되돌려야 함 (되돌리지 않으면 재할당 세션의 io가 0이 될 수가 없음)
+	if (sessionID != pSession->sessionID)
+	{
+		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+		{
+			ReleasePQCS(pSession);
+		}
+
+		return;
+	}
+
+	// 외부에서 disconnect 하는 상태
+	if (pSession->isDisconnected)
+	{
+		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+		{
+			ReleasePQCS(pSession);
+		}
+
+		return;
+	}
+
+	// Enqueue한 패킷을 다른 곳에서 사용하므로 패킷 참조카운트 증가 -> Dequeue할 때 감소
+	InterlockedIncrement64(&pSession->ioRefCount);
+
+	// 외부에서 처리할 job pqcs 요청
+	PostQueuedCompletionStatus(IOCPHandle, PQCSJobType, (ULONG_PTR)pSession, (LPOVERLAPPED)packet);
+
+	if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+	{
+		ReleasePQCS(pSession);
+
+		return;
+	}
+}
+
 bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 {
+	// PRO_BEGIN(L"Total_SendPacket");
+
 	// sessionID에서 index 찾은 후, 해당 Session 얻어옴
 	int index = GetSessionIndex(sessionID);
 	if (index < 0 || index >= mMaxAcceptCount)
@@ -825,6 +1089,7 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 		return false;
 	}
 
+
 	// 헤더 셋팅 & 인코딩
 	packet->Encoding();
 
@@ -834,13 +1099,19 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 	// packet 포인터를 SendQ에 enqueue
 	pSession->sendQ.Enqueue(packet);
 
+
+
 	// sendpost 함수 내에서 send call을 1회 제한함
 	// sendpost 함수를 호출하기 위한 PQCS도 1회 제한을 둬야 성능 개선됨
 	// -> 그렇지 않을 경우, sendpacket 오는대로 계속 PQCS 호출하게 되어 성능이 생각한대로 안나올 수 있음 
 	if (pSession->sendFlag == false)
 	{
+//		SendPost(pSession);
+
+		// 미전송 상태에서 전송 상태로 변겅
 		if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
 		{
+			// SendPost 작업을 하기 전까지 해당 Session이 살아 있어야 하므로 참조 카운트 증가
 			InterlockedIncrement64(&pSession->ioRefCount);
 			PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
 		}
@@ -980,10 +1251,10 @@ void NetServer::Stop()
 	WaitForMultipleObjects(mWorkerThreadCount, &mWorkerThreads[0], TRUE, INFINITE);
 	closesocket(ListenSocket);
 	WaitForSingleObject(mAcceptThread, INFINITE);
-	
+
 	CloseHandle(IOCPHandle);
 	CloseHandle(mAcceptThread);
-	
+
 	for (int i = 0; i < mWorkerThreadCount; i++)
 		CloseHandle(mWorkerThreads[i]);
 

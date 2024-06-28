@@ -33,7 +33,7 @@ struct stSESSION
 	CPacket* SendPackets[MAX_WSA_BUF] = { nullptr };	// Send Packets Array
 
 	alignas(64) int sendPacketCount;					// WSABUF Count
-	alignas(64) __int64 ioRefCount;						// I/O Count & Session Ref Count
+	alignas(64) __int64 ioRefCount;						// I/O Count & Session Ref Count (세션 참조 카운트)
 	alignas(64) bool sendFlag;							// Sending Message Check
 	alignas(8) bool isDisconnected;						// Session Disconnected
 	alignas(64) bool sendDisconnFlag;
@@ -87,8 +87,8 @@ struct stLanSESSION
 	alignas(64) int sendPacketCount;							// WSABUF Count
 	alignas(64) __int64 ioRefCount;								// I/O Count & Session Ref Count
 	alignas(64) bool sendFlag;									// Sending Message Check
-	alignas(8) bool isDisconnected;								// Session Disconnected
-	alignas(8) bool isUsed;										// Session Used
+	alignas(64) bool isDisconnected;								// Session Disconnected
+	alignas(64) bool isUsed;										// Session Used
 
 	stLanSESSION()
 	{

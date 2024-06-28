@@ -19,6 +19,9 @@ public:
 	// 패킷 전송
 	bool SendPacket(uint64_t sessionID, CPacket* packet);
 
+	// 패킷 전송 - 전송 후 끊기
+	bool SendPacketAndDisconnect(uint64_t sessionID, CPacket* packet, DWORD timeout = 0);
+
 	// Server Start
 	bool Start(const wchar_t* IP, unsigned short PORT, int createWorkerThreadCnt, int runningWorkerThreadCnt, bool nagelOff, bool zeroCopyOff, int maxAcceptCnt, unsigned char packet_code, unsigned char packet_key, DWORD timeout);
 
@@ -55,6 +58,13 @@ protected:
 	virtual void OnRecv(uint64_t sessionID, CPacket* packet) = 0;
 
 	// ==========================================================
+	// 컨텐츠에서 IOCP로 job 전달
+	// [PARAM] __int64 sessionID, CPacket* packet
+	// [RETURN] X 
+	// ==========================================================
+	virtual void OnJob(uint64_t sessionID, CPacket* packet) = 0;
+
+	// ==========================================================
 	// 세션 타임아웃 관련 처리
 	// [PARAM] __int64 sessionID
 	// [RETURN] X 
@@ -67,6 +77,9 @@ protected:
 	// [RETURN] X 
 	// ==========================================================
 	virtual void OnError(int errorCode, const wchar_t* msg) = 0;
+
+protected:
+	void JobPQCS(uint64_t sessionID, CPacket* packet);
 
 private:
 	friend unsigned __stdcall AcceptThread(void* param);
@@ -85,6 +98,9 @@ private:
 	bool RecvPost(stSESSION* pSession);
 	bool SendPost(stSESSION* pSession);
 
+	// 패킷을 보내고 일정시간이 지나면 세션을 끊음
+	bool SendPostReservedDisconnect(stSESSION* pSession);
+
 	// 세션 리소스 정리 및 해제
 	void ReleaseSession(stSESSION* pSession);
 
@@ -94,7 +110,7 @@ private:
 		return (uint64_t)((uint64_t)index | (uniqueID << SESSION_ID_BITS));
 	}
 
-	 void ReleasePQCS(stSESSION* pSession)
+	void ReleasePQCS(stSESSION* pSession)
 	{
 		PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::RELEASE);
 	}
@@ -151,6 +167,12 @@ private:
 		STOP,
 	};
 
+	const DWORD PQCSJobType = 0xaaaabbbb;
+
+public:
+	__int64 workerThreadCount;						// Worker Thread Count (Monitering)
+	__int64 runningThreadCount;						// Running Thread Count (Monitering)
+
 protected:
 	// logging
 	Log* logger;
@@ -177,9 +199,7 @@ protected:
 	__int64 sendBytesTPS;							// Send Bytes TPS
 	__int64 recvBytes;								// Total Recv Bytes
 	__int64 sendBytes;								// Total Send Bytes
-	__int64 workerThreadCount;						// Worker Thread Count (Monitering)
-	__int64 runningThreadCount;						// Running Thread Count (Monitering)
-	
+
 	bool startMonitering;
 
 	WCHAR startTime[64];

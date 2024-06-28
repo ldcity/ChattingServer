@@ -76,7 +76,6 @@ struct stLanSESSION
 	wchar_t IP_str[20];											// String IP
 
 	unsigned short PORT;										// Server PORT
-	//DWORD LastRecvTime;										// Last Recv Time
 
 	OVERLAPPED m_stRecvOverlapped;								// Recv Overlapped I/O Struct
 	OVERLAPPED m_stSendOverlapped;								// Send Overlapped I/O Struct
@@ -89,7 +88,7 @@ struct stLanSESSION
 	alignas(64) int sendPacketCount;							// WSABUF Count
 	alignas(64) __int64 ioRefCount;								// I/O Count & Session Ref Count
 	alignas(64) bool sendFlag;									// Sending Message Check
-	alignas(8) bool isDisconnected;								// Session Disconnected
+	alignas(64) bool isDisconnected;								// Session Disconnected
 	alignas(8) bool isUsed;										// Session Used
 
 	stLanSESSION()

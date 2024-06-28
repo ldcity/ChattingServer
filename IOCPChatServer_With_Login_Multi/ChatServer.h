@@ -11,33 +11,13 @@ private:
 	//--------------------------------------------------------------------------------------
 	// Job Info
 	//--------------------------------------------------------------------------------------
-	enum JobType
-	{
-		NEW_CONNECT,			// 새 접속
-		DISCONNECT,				// 접속 해제
-		MSG_PACKET				// 패킷
-	};
 
-	// Job 구조체
-	struct ChatJob
-	{
-		// Session 고유 ID
-		uint64_t sessionID;
-
-		// Job Type (새 접속, 패킷 메시지, 접속 해제 등)
-		WORD type;
-
-		// 패킷 포인터
-		CPacket* packet;
-	};
-
+	// Redis Job 구조체
 	struct RedisJob
 	{
-		// Session 고유 ID
-		uint64_t sessionID;
-
-		// 비동기 redis 요청 결과를 담은 future 객체
-		std::future<cpp_redis::reply> redisFuture;
+		uint64_t sessionID;				// Session 고유 ID
+		INT64 accountNo;
+		std::string sessionKey;
 	};
 
 public:
@@ -51,6 +31,7 @@ public:
 	void OnClientJoin(uint64_t sessionID);
 	void OnClientLeave(uint64_t sessionID);
 	void OnRecv(uint64_t sessionID, CPacket* packet);
+	void OnJob(uint64_t sessionID, CPacket* packet);
 	void OnTimeout(uint64_t sessionID);
 	void OnError(int errorCode, const wchar_t* msg);
 
@@ -78,7 +59,7 @@ public:
 	
 
 	// player 중복 체크
-	bool CheckPlayer(Player* player, INT64 accountNo)
+	bool CheckPlayer(uint64_t sessionID, INT64 accountNo)
 	{
 		// accountNo 중복체크
 		AcquireSRWLockShared(&accountNoMapLock);
@@ -89,34 +70,30 @@ public:
 
 			if (dupPlayer == nullptr)
 			{
+				ReleaseSRWLockShared(&accountNoMapLock);
 				return false;
 			}
 
-			m_accountNo.erase(accountIter);
-			ReleaseSRWLockShared(&accountNoMapLock);
-
 			DisconnectSession(dupPlayer->sessionID);
-
-			return true;
 		}
 
+		m_accountNo.insert({ accountNo, sessionID });
 		ReleaseSRWLockShared(&accountNoMapLock);
+
 		return true;
 	}
 
-	bool Authentication(Player* player);		// 동기 get 인증 요청										// 동기 인증 요청
-	void AsyncAuthentication(Player* player);	// 비동기 get 인증 요청
-	bool AsyncLogin(RedisJob* redisJob);		// 비동기 get 인증 요청 결과에 대한 처리		
-
+	bool Authentication(Player* player);		// 동기 get 인증 요청										
 
 	//--------------------------------------------------------------------------------------
 	// Packet Proc
 	//--------------------------------------------------------------------------------------
 	bool PacketProc(uint64_t sessionID, CPacket* packet);					// Packet Handler
-	void netPacketProc_Login(Player* player, CPacket* packet);			// 로그인 요청
-	void netPacketProc_SectorMove(Player* player, CPacket* packet);		// 섹터 이동 요청
-	void netPacketProc_Chatting(Player* player, CPacket* packet);		// 채팅 보내기
-	void netPacketProc_HeartBeat(Player* player, CPacket* packet);		// 하트비트
+	void netPacketProc_Login(uint64_t sessionID, CPacket* packet);				// 로그인 요청
+	void netPacketProc_ResLoginRedis(uint64_t sessionID, CPacket* packet);	// 로그인 응답
+	void netPacketProc_SectorMove(uint64_t sessionID, CPacket* packet);			// 섹터 이동 요청
+	void netPacketProc_Chatting(uint64_t sessionID, CPacket* packet);			// 채팅 보내기
+	void netPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet);			// 하트비트
 
 private:
 	Log* chatLog;
@@ -133,9 +110,10 @@ private:
 	HANDLE m_runEvent;									// Thread Start Event
 
 	TLSObjectPool<Player> playerPool = TLSObjectPool<Player>(200);
-	TLSObjectPool<RedisJob> redisJobPool = TLSObjectPool<RedisJob>(50);
 
-	LockFreeQueue<RedisJob*> redisJobQ = LockFreeQueue<RedisJob*>(10000);
+	TLSObjectPool<RedisJob> redisJobPool = TLSObjectPool<RedisJob>(0);
+
+	LockFreeQueue<RedisJob*> redisJobQ = LockFreeQueue<RedisJob*>(1000);
 
 	std::unordered_map<uint64_t, Player*> m_mapPlayer;							// 전체 Player 객체
 	Sector m_Sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];						// 섹터
@@ -145,7 +123,7 @@ private:
 	// m_accountNo에 새롭게 할당된 player의 accountNo(같은 번호)를 insert 하려고 해도
 	// onLeave에서 해당 accountNo를 제거하기 직전이면 insert되지 않음
 	// 잠깐의 시간동안은 중복을 허용해야 함
-	std::unordered_multimap<int64_t, uint64_t> m_accountNo;
+	std::unordered_map<int64_t, uint64_t> m_accountNo;
 
 	SRWLOCK playerMapLock;
 	SRWLOCK accountNoMapLock;
@@ -161,17 +139,6 @@ private:
 	__int64 m_totalPlayerCnt;												// player total
 	__int64 m_loginPlayerCnt;
 	
-	__int64 m_jobUpdatecnt;													// job 개수
-	__int64 m_jobThreadUpdateCnt;											// job thread update 횟수
-	
-	__int64 m_redisJobUpdatecnt;											// redis job 개수
-	__int64 m_redisJobThreadUpdateCnt;										// redisjob thread update 횟수
-
-	__int64 m_redisGetCnt;
-	__int64 m_redisGetTPS;
-
-	__int64 m_UpdateTPS;													// job thread update 횟수
-
 	__int64 m_loginPacketTPS;
 	__int64 m_sectorMovePacketTPS;
 	__int64 m_chattingReqTPS;
@@ -183,6 +150,15 @@ private:
 	__int64 m_deletePlayerCnt;
 	__int64 m_deletePlayerTPS;
 
+	__int64 m_updateTotal;
+	__int64 m_updateTPS;
+
+	__int64 m_redisGetCnt;
+	__int64 m_redisGetTPS;
+
+	__int64 m_redisJobThreadUpdateTPS;
+	__int64 m_redisJobEnqueueTPS;
+
 	bool startFlag;
 
 private:
@@ -192,8 +168,8 @@ private:
 	std::wstring m_tempIp;
 	std::string m_ip;
 
-	// multi thread이기 때문에 tls 사용
-	CRedis_TLS* redis_TLS;
+	CRedis* redis;
+
 };
 
 

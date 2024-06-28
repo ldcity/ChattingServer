@@ -509,6 +509,9 @@ public:
 			packet->Clear();
 			PacketPool.Free(packet);
 		}
+
+		if (packet->ref_cnt < 0)
+			CRASH();
 	}
 
 	inline void addRefCnt()

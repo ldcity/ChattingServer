@@ -82,8 +82,8 @@ private:
 #define PRO_TEXT(x)	CProfile::GetInstance()->ProfileOutText(x)
 #define PRO_RESET() CProfile::GetInstance()->ProfileReset()
 #else
-#define PRO_BEGIN(x)
-#define PRO_END(x)
+#define // PRO_BEGIN(x)
+#define // PRO_END(x)
 #endif
 
 #endif // !__PROFILING__

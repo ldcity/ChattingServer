@@ -758,6 +758,7 @@ bool NetServer::SendPost(stSESSION* pSession)
 		}
 		else InterlockedIncrement64(&sendPendingTPS);
 	}
+
 	return true;
 }
 

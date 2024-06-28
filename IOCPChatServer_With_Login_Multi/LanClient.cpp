@@ -231,7 +231,7 @@ bool LanClient::LanWorkerThread_serv()
 {
 	DWORD threadID = GetCurrentThreadId();
 
-	stSESSION* pSession = nullptr;
+	stLanSESSION* pSession = nullptr;
 	BOOL bSuccess = true;
 	long cbTransferred = 0;
 	LPOVERLAPPED pOverlapped = nullptr;

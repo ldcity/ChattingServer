@@ -179,7 +179,7 @@ protected:
 	__int64 sendBytes;								// Total Send Bytes
 	__int64 workerThreadCount;						// Worker Thread Count (Monitering)
 	__int64 runningThreadCount;						// Running Thread Count (Monitering)
-	
+
 	bool startMonitering;
 
 	WCHAR startTime[64];

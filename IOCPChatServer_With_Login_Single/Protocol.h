@@ -117,7 +117,21 @@ enum en_PACKET_TYPE
 	en_PACKET_CS_CHAT_REQ_HEARTBEAT,
 
 
+	en_PACKET_ON_TIMEOUT = 2000,
 
 };
+
+enum en_PACKET_CS_LOGIN_RES_LOGIN
+{
+	dfLOGIN_STATUS_NONE = -1,				// 미인증상태
+	dfLOGIN_STATUS_FAIL = 0,				// 세션오류
+	dfLOGIN_STATUS_OK = 1,					// 성공
+	dfLOGIN_STATUS_GAME = 2,				// 게임중
+	dfLOGIN_STATUS_ACCOUNT_MISS = 3,		// account 테이블에 AccountNo 없음
+	dfLOGIN_STATUS_SESSION_MISS = 4,		// Session 테이블에 AccountNo 없음
+	dfLOGIN_STATUS_STATUS_MISS = 5,			// Status 테이블에 AccountNo 없음
+	dfLOGIN_STATUS_NOSERVER = 6,			// 서비스중인 서버가 없음.
+};
+
 
 #endif

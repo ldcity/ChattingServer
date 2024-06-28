@@ -48,25 +48,36 @@ public:
 	// player 삭제
 	bool DeletePlayer(uint64_t sessionID);									
 	
-	// player 중복 체크
+	//// player 중복 체크
+	//inline bool CheckPlayer(Player* player, INT64 accountNo)
+	//{
+	//	// accountNo 중복체크
+	//	auto accountIter = m_accountNo.find(accountNo);
+	//	if (accountIter != m_accountNo.end())
+	//	{
+	//		Player* dupPlayer = FindPlayer(accountIter->second);
+
+	//		if (dupPlayer == nullptr)
+	//			return false;
+
+	//		m_accountNo.erase(accountIter);
+
+	//		DisconnectSession(dupPlayer->sessionID);
+
+	//		return true;
+	//	}
+
+	//	return true;
+	//}
+
+		// player 중복 체크
 	inline bool CheckPlayer(Player* player, INT64 accountNo)
 	{
 		// accountNo 중복체크
 		auto accountIter = m_accountNo.find(accountNo);
 		if (accountIter != m_accountNo.end())
-		{
-			Player* dupPlayer = FindPlayer(accountIter->second);
-
-			if (dupPlayer == nullptr)
-				return false;
-
-			m_accountNo.erase(accountIter);
-
-			DisconnectSession(dupPlayer->sessionID);
-
-			return true;
-		}
-
+			return false;
+		
 		return true;
 	}
 
@@ -125,7 +136,8 @@ private:
 	// m_accountNo에 새롭게 할당된 player의 accountNo(같은 번호)를 insert 하려고 해도
 	// onLeave에서 해당 accountNo를 제거하기 직전이면 insert되지 않음
 	// 잠깐의 시간동안은 중복을 허용해야 함
-	unordered_multimap<int64_t, uint64_t> m_accountNo;
+	//unordered_multimap<int64_t, uint64_t> m_accountNo;
+	unordered_set<int64_t> m_accountNo;
 
 private:
 		PerformanceMonitor performMoniter;			// 성능 모니터링 정보를 얻어옴

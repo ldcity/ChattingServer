@@ -186,6 +186,15 @@ protected:
 	__int64 workerThreadCount;						// Worker Thread Count (Monitering)
 	__int64 runningThreadCount;						// Running Thread Count (Monitering)
 
+	__int64 pqcsCallTotal;							// pqcs call Total
+	__int64 pqcsCallTPS;							// pqcs call TPS
+	__int64 sendpacketTotal;
+	__int64 sendpacketTPS;
+	__int64 eqTotal;
+	__int64 eqTPS;
+	__int64 dqTotal;
+	__int64 dqTPS;
+
 	bool startMonitering;
 };
 

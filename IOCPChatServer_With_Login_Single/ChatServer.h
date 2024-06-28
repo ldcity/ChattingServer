@@ -4,7 +4,6 @@
 #include "PCH.h"
 #include "NetServer.h"
 #include "MonitoringLanClient.h"
-#include <variant>
 
 class ChatServer : public NetServer
 {
@@ -17,6 +16,8 @@ private:
 		NEW_CONNECT,			// 새 접속
 		DISCONNECT,				// 접속 해제
 		MSG_PACKET,				// 패킷
+		REDIS_RES,				// 레디스 결과 이후 로그인 처리
+		TIMEOUT					// 타임아웃
 	};
 
 	// Job 구조체
@@ -32,14 +33,23 @@ private:
 		CPacket* packet;
 	};
 
+	//struct RedisJob
+	//{
+	//	// Session 고유 ID
+	//	//uint64_t sessionID;
+	//	Player* player;
+
+	//	// 비동기 redis 요청 결과를 담은 객체 (set일 경우 bool, get일 경우 future 객체)
+	//	//std::variant<std::future<cpp_redis::reply>, std::future<bool>> redisFuture;
+	//	std::future<cpp_redis::reply> redisFuture;
+	//};
+
+	// Redis Job 구조체
 	struct RedisJob
 	{
-		// Session 고유 ID
-		uint64_t sessionID;
-
-		// 비동기 redis 요청 결과를 담은 객체 (set일 경우 bool, get일 경우 future 객체)
-		//std::variant<std::future<cpp_redis::reply>, std::future<bool>> redisFuture;
-		std::future<cpp_redis::reply> redisFuture;
+		uint64_t sessionID;				// Session 고유 ID
+		INT64 accountNo;
+		std::string sessionKey;
 	};
 
 public:
@@ -48,8 +58,6 @@ public:
 
 	bool ChatServerStart();
 	bool ChatServerStop();
-
-	bool PacketProc(uint64_t sessionID, CPacket* packet);
 
 	bool OnConnectionRequest(const wchar_t* IP, unsigned short PORT);
 	void OnClientJoin(uint64_t sessionID);
@@ -80,7 +88,7 @@ public:
 	bool DeletePlayer(uint64_t sessionID);									// player 삭제
 
 	// player 중복 체크
-	bool CheckPlayer(Player* player, INT64 accountNo)
+	bool CheckPlayer(uint64_t sessionID, INT64 accountNo)
 	{
 		// accountNo 중복체크
 		auto accountIter = m_accountNo.find(accountNo);
@@ -93,24 +101,33 @@ public:
 				return false;
 			}
 
-			m_accountNo.erase(accountIter);
-
 			DisconnectSession(dupPlayer->sessionID);
-
-			return true;
 		}
+
+		m_accountNo.insert({ accountNo, sessionID });
 
 		return true;
 	}
 
+	//	// player 중복 체크
+	//bool CheckPlayer(Player* player, INT64 accountNo)
+	//{
+	//	// accountNo 중복체크
+	//	auto accountIter = m_accountNo.find(accountNo);
+	//	if (accountIter != m_accountNo.end())
+	//		return false;
+
+	//	return true;
+	//}
+
 	bool Authentication(Player* player);		// 동기 인증 요청
-	void AsyncAuthentication(Player* player);	// 비동기 인증 요청
-	bool AsyncLogin(RedisJob* redisJob);		// 비동기 인증 요청 결과 처리		
 
 	//--------------------------------------------------------------------------------------
 	// Packet Proc
 	//--------------------------------------------------------------------------------------
+	bool PacketProc(uint64_t sessionID, CPacket* packet);
 	void netPacketProc_Login(uint64_t sessionID, CPacket* packet);			// 로그인 요청
+	void netPacketProc_ResLoginRedis(uint64_t sessionID, CPacket* packet);	// 로그인 응답
 	void netPacketProc_SectorMove(uint64_t sessionID, CPacket* packet);		// 섹터 이동 요청
 	void netPacketProc_Chatting(uint64_t sessionID, CPacket* packet);		// 채팅 보내기
 	void netPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet);		// 하트비트
@@ -133,6 +150,7 @@ private:
 	HANDLE m_runEvent;									// Thread Start Event
 
 	TLSObjectPool<Player> playerPool = TLSObjectPool<Player>(200);
+	
 	TLSObjectPool<ChatJob> jobPool = TLSObjectPool<ChatJob>(300);
 	TLSObjectPool<RedisJob> redisJobPool = TLSObjectPool<RedisJob>(50);
 
@@ -147,7 +165,9 @@ private:
 	// m_accountNo에 새롭게 할당된 player의 accountNo(같은 번호)를 insert 하려고 해도
 	// onLeave에서 해당 accountNo를 제거하기 직전이면 insert되지 않음
 	// 잠깐의 시간동안은 중복을 허용해야 함
-	std::unordered_multimap<int64_t, uint64_t> m_accountNo;
+	//std::unordered_multimap<int64_t, uint64_t> m_accountNo;
+	//std::unordered_set<uint64_t> m_accountNo;
+	std::unordered_map<int64_t, uint64_t> m_accountNo;
 
 	friend unsigned __stdcall JobWorkerThread(PVOID param);					// Job 일 처리 스레드
 	friend unsigned __stdcall RedisJobWorkerThread(PVOID param);			// Redis Job 일 처리 스레드
@@ -165,9 +185,6 @@ private:
 	__int64 m_jobUpdatecnt;													// job 개수
 	__int64 m_jobThreadUpdateCnt;											// job thread update 횟수
 
-	__int64 m_redisJobUpdatecnt;											// redis job 개수
-	__int64 m_redisJobThreadUpdateCnt;										// redisjob thread update 횟수
-
 	__int64 m_loginPacketTPS;
 	__int64 m_sectorMovePacketTPS;
 	__int64 m_chattingReqTPS;
@@ -181,6 +198,10 @@ private:
 
 	__int64 m_redisGetCnt;
 	__int64 m_redisGetTPS;
+
+	__int64 m_redisJobEnqueueTPS;
+	__int64 m_redisJobThreadUpdateTPS;
+
 
 	bool startFlag;
 
