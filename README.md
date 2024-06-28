@@ -7,11 +7,13 @@ redis에서 인증 키를 확인하여 클라이언트의 로그인 유효성 �
  
 # NotLogin Version (Single Thread / Multi Thread)
 IOCPChatServer_NotLogin_Single
+
 IOCPChatServer_NotLogin_Multi
 - Login Server에서의 Login 절차 없이 바로 Chatting Server에 진입하여 통신 합니다.
 
 # Login Version (Single Thread / Multi Thread)
 IOCPChatServer_With_Login_Single
+
 IOCPChatServer_With_Login_Multi
 - Login Server에서 Login 절차를 진행한 후, Chatting Server에 진입하여 통신 합니다.
 - Redis DB에 접근하여 클라이언트의 유효성을 판단합니다.
