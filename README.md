@@ -14,10 +14,12 @@ redis에서 인증 키를 확인하여 클라이언트의 로그인 유효성 �
 
 - IOCPChatServer_NotLogin_Single
 - IOCPChatServer_With_Login_Single
+
 -> Contents Logic이 Single Thread에서 동작합니다.
 
 - IOCPChatServer_NotLogin_Multi
 - IOCPChatServer_With_Login_Multi
+
 -> Contents Logic이 Multi Thread에서 동작합니다.
 
 
