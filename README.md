@@ -1,6 +1,7 @@
 # ChattingServer
 IOCP Model로 구현한 Chatting Server
 redis에서 인증 키를 확인하여 클라이언트의 로그인 유효성 검증 후, 채팅 기능을 수행합니다.
+
 -> redis 동기/비동기 방식 모두 구현
 1초마다 Monitoring Server로 Monitoring 정보를 전송합니다.
  
