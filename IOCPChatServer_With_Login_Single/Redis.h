@@ -10,42 +10,23 @@ public:
 	CRedis();
 	~CRedis();
 
-	// redis ¿¬°á
+	// redis ì—°ê²°
 	void Connect(std::wstring IP, unsigned short port);
 
-	// Key-Value ÇüÅÂ·Î Redis¿¡ ÀúÀå (µ¿±â)
+	// ---------------------------------------------------
+	// ë™ê¸°
+	// ---------------------------------------------------
 	bool syncSet(const std::string& key, const std::string& value, int timeout = 0);
-
-	// Key¿¡ ¸Â´Â Value¸¦ Redis¿¡¼­ ¾ò¾î¿È (µ¿±â)
 	cpp_redis::reply syncGet(const std::string& key);
 
-	// Key¿¡ ¸Â´Â Value¸¦ Redis¿¡¼­ ¾ò¾î¿È (ºñµ¿±â)
-	std::future<cpp_redis::reply> asyncGet(const std::string& key);
+	// ---------------------------------------------------
+	// ë¹„ë™ê¸°
+	// ---------------------------------------------------
+	void asyncSet(const std::string& key, const std::string& value, int timeout, std::function<void(const cpp_redis::reply&)> callback);
+	void asyncGet(const std::string& key, std::function<void(const cpp_redis::reply&)> callback);
 
 private:
 	cpp_redis::client client;
-};
-
-// Multi-Thread ¿ë Redis
-class CRedis_TLS : public CRedis
-{
-public:
-	CRedis_TLS(std::wstring IP, unsigned short port);
-	~CRedis_TLS();
-
-	bool syncSet(const std::string& key, const std::string& value, int timeout = 0);
-	cpp_redis::reply syncGet(const std::string& key);
-	std::future<cpp_redis::reply> asyncGet(const std::string& key);
-
-	CRedis* GetCRedisObj();		// CRedis °´Ã¼¸¦ »ı¼ºÇÏ°Å³ª ¾ò¾î¿È
-
-private:
-	DWORD tlsIndex;
-
-	LockFreeStack<CRedis*> redisStack;		// CRedis °´Ã¼µéÀ» ¸ğµÎ ÇØÁ¦ÇÏ±â À§ÇØ ÇÊ¿ä
-
-	std::wstring mIP;
-	unsigned short mPort;
 };
 
 
