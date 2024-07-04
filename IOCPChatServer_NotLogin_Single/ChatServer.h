@@ -48,8 +48,8 @@ public:
 	// player 삭제
 	bool DeletePlayer(uint64_t sessionID);									
 	
-		// player 중복 체크
-	inline bool CheckPlayer(Player* player, INT64 accountNo)
+	// player 중복 체크
+	bool CheckPlayer(uint64_t sessionID, INT64 accountNo)
 	{
 		// accountNo 중복체크
 		auto accountIter = m_accountNo.find(accountNo);
@@ -58,14 +58,14 @@ public:
 			Player* dupPlayer = FindPlayer(accountIter->second);
 
 			if (dupPlayer == nullptr)
+			{
 				return false;
-
-			m_accountNo.erase(accountIter);
+			}
 
 			DisconnectSession(dupPlayer->sessionID);
-
-			return true;
 		}
+
+		m_accountNo.insert({ accountNo, sessionID });
 
 		return true;
 	}
