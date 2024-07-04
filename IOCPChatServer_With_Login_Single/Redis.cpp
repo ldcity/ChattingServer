@@ -14,14 +14,14 @@ CRedis::~CRedis()
 
 }
 
-// redis ¿¬°á
+// redis Â¿Â¬Â°Ã¡
 void CRedis::Connect(std::wstring IP, unsigned short port)
 {
 	std::string IPStr(IP.begin(), IP.end());
 	client.connect(IPStr, port);
 }
 
-// µ¿±â
+// ÂµÂ¿Â±Ã¢
 bool CRedis::syncSet(const std::string& key, const std::string& value, int timeout)
 {
 	if (timeout > 0)
@@ -46,7 +46,7 @@ cpp_redis::reply CRedis::syncGet(const std::string& key)
 	return get_reply.get();
 }
 
-// ºñµ¿±â
+// ë¹„ë™ê¸°
 void CRedis::asyncSet(const std::string & key, const std::string & value, int timeout, std::function<void(const cpp_redis::reply&)> callback)
 {
 	if (timeout > 0)
