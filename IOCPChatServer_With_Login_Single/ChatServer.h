@@ -13,41 +13,30 @@ private:
 	//--------------------------------------------------------------------------------------
 	enum JobType
 	{
-		NEW_CONNECT,			// »õ Á¢¼Ó
-		DISCONNECT,				// Á¢¼Ó ÇØÁ¦
-		MSG_PACKET,				// ÆĞÅ¶
-		REDIS_RES,				// ·¹µğ½º °á°ú ÀÌÈÄ ·Î±×ÀÎ Ã³¸®
-		TIMEOUT					// Å¸ÀÓ¾Æ¿ô
+		NEW_CONNECT,			// ìƒˆ ì ‘ì†
+		DISCONNECT,				// ì ‘ì† í•´ì œ
+		MSG_PACKET,				// íŒ¨í‚·
+		REDIS_RES,				// ë ˆë””ìŠ¤ ê²°ê³¼ ì´í›„ ë¡œê·¸ì¸ ì²˜ë¦¬
+		TIMEOUT					// íƒ€ì„ì•„ì›ƒ
 	};
 
-	// Job ±¸Á¶Ã¼
+	// Job êµ¬ì¡°ì²´
 	struct ChatJob
 	{
-		// Session °íÀ¯ ID
+		// Session ê³ ìœ  ID
 		uint64_t sessionID;
 
-		// Job Type (»õ Á¢¼Ó, ÆĞÅ¶ ¸Ş½ÃÁö, Á¢¼Ó ÇØÁ¦ µî)
+		// Job Type (ìƒˆ ì ‘ì†, íŒ¨í‚· ë©”ì‹œì§€, ì ‘ì† í•´ì œ ë“±)
 		WORD type;
 
-		// ÆĞÅ¶ Æ÷ÀÎÅÍ
+		// íŒ¨í‚· í¬ì¸í„°
 		CPacket* packet;
 	};
 
-	//struct RedisJob
-	//{
-	//	// Session °íÀ¯ ID
-	//	//uint64_t sessionID;
-	//	Player* player;
-
-	//	// ºñµ¿±â redis ¿äÃ» °á°ú¸¦ ´ãÀº °´Ã¼ (setÀÏ °æ¿ì bool, getÀÏ °æ¿ì future °´Ã¼)
-	//	//std::variant<std::future<cpp_redis::reply>, std::future<bool>> redisFuture;
-	//	std::future<cpp_redis::reply> redisFuture;
-	//};
-
-	// Redis Job ±¸Á¶Ã¼
+	// Redis Job êµ¬ì¡°ì²´
 	struct RedisJob
 	{
-		uint64_t sessionID;				// Session °íÀ¯ ID
+		uint64_t sessionID;				// Session ê³ ìœ  ID
 		INT64 accountNo;
 		std::string sessionKey;
 	};
@@ -67,9 +56,9 @@ public:
 	void OnError(int errorCode, const wchar_t* msg);
 
 	//--------------------------------------------------------------------------------------
-	// player °ü·Ã ÇÔ¼ö
+	// player ê´€ë ¨ í•¨ìˆ˜
 	//--------------------------------------------------------------------------------------
-	Player* FindPlayer(uint64_t sessionID)							// player °Ë»ö
+	Player* FindPlayer(uint64_t sessionID)							// player ê²€ìƒ‰
 	{
 		Player* player = nullptr;
 
@@ -84,13 +73,13 @@ public:
 		return iter->second;
 	}
 
-	bool CreatePlayer(uint64_t sessionID);									// player »ı¼º
-	bool DeletePlayer(uint64_t sessionID);									// player »èÁ¦
+	bool CreatePlayer(uint64_t sessionID);									// player ìƒì„±
+	bool DeletePlayer(uint64_t sessionID);									// player ì‚­ì œ
 
-	// player Áßº¹ Ã¼Å©
+	// player ì¤‘ë³µ ì²´í¬
 	bool CheckPlayer(uint64_t sessionID, INT64 accountNo)
 	{
-		// accountNo Áßº¹Ã¼Å©
+		// accountNo ì¤‘ë³µì²´í¬
 		auto accountIter = m_accountNo.find(accountNo);
 		if (accountIter != m_accountNo.end())
 		{
@@ -109,34 +98,24 @@ public:
 		return true;
 	}
 
-	//	// player Áßº¹ Ã¼Å©
-	//bool CheckPlayer(Player* player, INT64 accountNo)
-	//{
-	//	// accountNo Áßº¹Ã¼Å©
-	//	auto accountIter = m_accountNo.find(accountNo);
-	//	if (accountIter != m_accountNo.end())
-	//		return false;
 
-	//	return true;
-	//}
-
-	bool Authentication(Player* player);		// µ¿±â ÀÎÁõ ¿äÃ»
+	bool Authentication(Player* player);		// ë™ê¸° ì¸ì¦ ìš”ì²­
 
 	//--------------------------------------------------------------------------------------
 	// Packet Proc
 	//--------------------------------------------------------------------------------------
 	bool PacketProc(uint64_t sessionID, CPacket* packet);
-	void netPacketProc_Login(uint64_t sessionID, CPacket* packet);			// ·Î±×ÀÎ ¿äÃ»
-	void netPacketProc_ResLoginRedis(uint64_t sessionID, CPacket* packet);	// ·Î±×ÀÎ ÀÀ´ä
-	void netPacketProc_SectorMove(uint64_t sessionID, CPacket* packet);		// ¼½ÅÍ ÀÌµ¿ ¿äÃ»
-	void netPacketProc_Chatting(uint64_t sessionID, CPacket* packet);		// Ã¤ÆÃ º¸³»±â
-	void netPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet);		// ÇÏÆ®ºñÆ®
+	void netPacketProc_Login(uint64_t sessionID, CPacket* packet);			// ë¡œê·¸ì¸ ìš”ì²­
+	void netPacketProc_ResLoginRedis(uint64_t sessionID, CPacket* packet);		// ë¡œê·¸ì¸ ì‘ë‹µ
+	void netPacketProc_SectorMove(uint64_t sessionID, CPacket* packet);		// ì„¹í„° ì´ë™ ìš”ì²­
+	void netPacketProc_Chatting(uint64_t sessionID, CPacket* packet);		// ì±„íŒ… ë³´ë‚´ê¸°
+	void netPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet);		// í•˜íŠ¸ë¹„íŠ¸
 
 private:
 	Log* chatLog;
 
-	int m_userMAXCnt;														// ÃÖ´ë player ¼ö
-	int m_timeout;															// Å¸ÀÓ¾Æ¿ô ½Ã°£
+	int m_userMAXCnt;														// ìµœëŒ€ player ìˆ˜
+	int m_timeout;															// íƒ€ì„ì•„ì›ƒ ì‹œê°„
 
 	HANDLE m_jobHandle;
 	HANDLE m_jobEvent;
@@ -147,43 +126,34 @@ private:
 	HANDLE m_moniteringThread;							// Monitering Thread
 
 	HANDLE m_moniterEvent;								// Monitering Event
-	HANDLE m_runEvent;									// Thread Start Event
+	HANDLE m_runEvent;								// Thread Start Event
 
-	TLSObjectPool<Player> playerPool = TLSObjectPool<Player>(200);
-	
-	TLSObjectPool<ChatJob> jobPool = TLSObjectPool<ChatJob>(300);
+	TLSObjectPool<Player> playerPool = TLSObjectPool<Player>(150);
+	TLSObjectPool<ChatJob> jobPool = TLSObjectPool<ChatJob>(200);
 	TLSObjectPool<RedisJob> redisJobPool = TLSObjectPool<RedisJob>(50);
 
-	LockFreeQueue<ChatJob*> chatJobQ = LockFreeQueue<ChatJob*>(20000);
-	LockFreeQueue<RedisJob*> redisJobQ = LockFreeQueue<RedisJob*>(10000);
+	LockFreeQueue<ChatJob*> chatJobQ = LockFreeQueue<ChatJob*>(10000);
+	LockFreeQueue<RedisJob*> redisJobQ = LockFreeQueue<RedisJob*>(100);
 
-	std::unordered_map<uint64_t, Player*> m_mapPlayer;							// ÀüÃ¼ Player °´Ã¼
-	std::unordered_set<Player*> m_Sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];		// °¢ ¼½ÅÍ¿¡ Á¸ÀçÇÏ´Â Player °´Ã¼
-	
-	// Áßº¹ account È®ÀÎÀ» À§ÇØ Áßº¹À» Çã¿ëÇÏ´Â multimapÀ¸·Î »ç¿ë
-	// -> ÀÌ·¸°Ô ÇÏÁö ¾ÊÀ¸¸é Áßº¹ account ÀÎ°É È®ÀÎÇÏ¿© ÀÌÀü ¼¼¼ÇÀ» disconnect ÇÑ ÈÄ,
-	// m_accountNo¿¡ »õ·Ó°Ô ÇÒ´çµÈ playerÀÇ accountNo(°°Àº ¹øÈ£)¸¦ insert ÇÏ·Á°í ÇØµµ
-	// onLeave¿¡¼­ ÇØ´ç accountNo¸¦ Á¦°ÅÇÏ±â Á÷ÀüÀÌ¸é insertµÇÁö ¾ÊÀ½
-	// Àá±ñÀÇ ½Ã°£µ¿¾ÈÀº Áßº¹À» Çã¿ëÇØ¾ß ÇÔ
-	//std::unordered_multimap<int64_t, uint64_t> m_accountNo;
-	//std::unordered_set<uint64_t> m_accountNo;
-	std::unordered_map<int64_t, uint64_t> m_accountNo;
+	std::unordered_map<uint64_t, Player*> m_mapPlayer;				// ì „ì²´ Player ê´€ë¦¬
+	std::unordered_set<Player*> m_Sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];		// ê° ì„¹í„°ì— ì¡´ì¬í•˜ëŠ” Player ê´€ë¦¬
+	std::unordered_map<int64_t, uint64_t> m_accountNo;				// Player ê³„ì • ë²ˆí˜¸ ê´€ë¦¬
 
-	friend unsigned __stdcall JobWorkerThread(PVOID param);					// Job ÀÏ Ã³¸® ½º·¹µå
-	friend unsigned __stdcall RedisJobWorkerThread(PVOID param);			// Redis Job ÀÏ Ã³¸® ½º·¹µå
+	friend unsigned __stdcall JobWorkerThread(PVOID param);				// Job ì¼ ì²˜ë¦¬ ìŠ¤ë ˆë“œ
+	friend unsigned __stdcall RedisJobWorkerThread(PVOID param);			// Redis Job ì¼ ì²˜ë¦¬ ìŠ¤ë ˆë“œ
 	friend unsigned __stdcall MoniteringThread(void* param);
 
 	bool JobWorkerThread_serv();
 	bool RedisJobWorkerThread_serv();
 	bool MoniterThread_serv();
 
-	// ¸ğ´ÏÅÍ¸µ °ü·Ã º¯¼öµé
+// ëª¨ë‹ˆí„°ë§ ê´€ë ¨ ë³€ìˆ˜ë“¤
 private:
-	__int64 m_totalPlayerCnt;												// player total
+	__int64 m_totalPlayerCnt;												
 	__int64 m_loginPlayerCnt;
 
-	__int64 m_jobUpdatecnt;													// job °³¼ö
-	__int64 m_jobThreadUpdateCnt;											// job thread update È½¼ö
+	__int64 m_jobUpdatecnt;													
+	__int64 m_jobThreadUpdateCnt;										
 
 	__int64 m_loginPacketTPS;
 	__int64 m_sectorMovePacketTPS;
