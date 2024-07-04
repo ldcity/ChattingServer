@@ -62,7 +62,7 @@ public:
 	bool CheckPlayer(uint64_t sessionID, INT64 accountNo)
 	{
 		// accountNo 중복체크
-		AcquireSRWLockShared(&accountNoMapLock);
+		AcquireSRWLockExclusive(&accountNoMapLock);
 		auto accountIter = m_accountNo.find(accountNo);
 		if (accountIter != m_accountNo.end())
 		{
@@ -70,7 +70,7 @@ public:
 
 			if (dupPlayer == nullptr)
 			{
-				ReleaseSRWLockShared(&accountNoMapLock);
+				ReleaseSRWLockExclusive(&accountNoMapLock);
 				return false;
 			}
 
@@ -78,7 +78,7 @@ public:
 		}
 
 		m_accountNo.insert({ accountNo, sessionID });
-		ReleaseSRWLockShared(&accountNoMapLock);
+		ReleaseSRWLockExclusive(&accountNoMapLock);
 
 		return true;
 	}
