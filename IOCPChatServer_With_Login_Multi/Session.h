@@ -7,8 +7,7 @@
 
 #define MAX_WSA_BUF 100
 #define RELEASEMASKING 0x80000000				// ioRefCount¿¡¼­ ReleaseFlag¸¸ »Ì¾Æ³¿
-
-const char SESSION_ID_BITS = 47;
+#define SESSION_ID_BITS 0x800000000000
 const __int64 SESSION_INDEX_MASK = 0x00007FFFFFFFFFFF;
 
 // Session Struct

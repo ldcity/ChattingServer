@@ -104,10 +104,10 @@ private:
 	// 세션 리소스 정리 및 해제
 	void ReleaseSession(stSESSION* pSession);
 
-	// uniqueID와 index로 고유한 SessionID 생성
+	// 순차적으로 1씩 증가하는 숫자 값(uniqueID)과 Session 배열 index로 고유한 SessionID 생성
 	 uint64_t  CreateSessionID(uint64_t uniqueID, int index)
 	{
-		return (uint64_t)((uint64_t)index | (uniqueID << SESSION_ID_BITS));
+		return (uint64_t)((uniqueID << SESSION_ID_BITS) | (uint64_t)index);
 	}
 
 	void ReleasePQCS(stSESSION* pSession)

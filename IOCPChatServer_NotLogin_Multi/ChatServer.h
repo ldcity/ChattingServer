@@ -112,27 +112,17 @@ private:
 	int m_userMAXCnt;									// 최대 player 수
 	int m_timeout;										// 타임아웃 시간
 
-	HANDLE m_jobHandle;
-	HANDLE m_jobEvent;
-
 	HANDLE m_moniteringThread;							// Monitering Thread
 
 	HANDLE m_moniterEvent;								// Monitering Event
 	HANDLE m_runEvent;									// Thread Start Event
 
 	TLSObjectPool<Player> playerPool = TLSObjectPool<Player>(200);		// Player 객체를 담는 Pool
-	//TLSObjectPool<ChatJob> jobPool = TLSObjectPool<ChatJob>(300);		// OnRecv를 통해 들어온 작업 처리를 위한 Job Pool
-	//LockFreeQueue<ChatJob*> chatJobQ = LockFreeQueue<ChatJob*>(30000);	// Job Update Thread에서 JobQ에 쌓인 Job 처리
 
 	unordered_map<uint64_t, Player*> m_mapPlayer;							// 전체 Player 객체
-	//unordered_set<Player*> m_Sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];		// 각 섹터에 존재하는 Player 객체
+
 	Sector m_Sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];						// 섹터
 
-	// 중복 account 확인을 위해 중복을 허용하는 multimap으로 사용
-	// -> 이렇게 하지 않으면 중복 account 인걸 확인하여 이전 세션을 disconnect 한 후,
-	// m_accountNo에 새롭게 할당된 player의 accountNo(같은 번호)를 insert 하려고 해도
-	// onLeave에서 해당 accountNo를 제거하기 직전이면 insert되지 않음
-	// 잠깐의 시간동안은 중복을 허용해야 함
 	unordered_multimap<int64_t, uint64_t> m_accountNo;
 
 	SRWLOCK playerMapLock;
@@ -145,10 +135,8 @@ private:
 	wstring m_tempIp;
 	string m_ip;
 
-	//friend unsigned __stdcall JobWorkerThread(PVOID param);					// Job 일 처리 스레드
 	friend unsigned __stdcall MoniteringThread(void* param);
 
-	//bool JobWorkerThread_serv();
 	bool MoniterThread_serv();
 
 	// 모니터링 관련 변수들
@@ -156,9 +144,6 @@ private:
 	__int64 m_totalPlayerCnt;												// player total
 	__int64 m_loginPlayerCnt;
 	
-	__int64 m_jobUpdatecnt;													// job 개수
-	__int64 m_jobThreadUpdateCnt;											// job thread update 횟수
-
 	__int64 m_UpdateTPS;													// job thread update 횟수
 	
 	__int64 m_loginPacketTPS;

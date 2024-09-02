@@ -305,6 +305,9 @@ bool NetServer::AcceptThread_serv()
 
 		// 종료flag 셋팅
 		InterlockedExchange8((char*)&session->isDisconnected, false);
+		InterlockedExchange8((char*)&session->sendDisconnFlag, false);
+
+		SetTimeout(session);
 
 		// IOCP와 소켓 연결
 		// 세션 주소값이 키 값
@@ -495,23 +498,23 @@ bool NetServer::RecvProc(stSESSION* pSession, long cbTransferred)
 	if (!pSession->sendDisconnFlag)
 		SetTimeout(pSession);
 
-	// Recv Message Process
-	while (useSize > 0)
+	// 현재 recv 링버퍼에서 읽을 데이터가 있으면 계속 진행
+	while (useSize > 0) 
 	{
-		NetHeader header;
+		NetHeader header;	// 네트워크 헤더
 
 		// Header 크기만큼 있는지 확인
 		if (useSize <= sizeof(NetHeader))
 			break;
 
-		// Header Peek
+		// Header 데이터 읽어옴 (Peek)
 		pSession->recvRingBuffer.Peek((char*)&header, sizeof(NetHeader));
 
-		// Packet 크기만큼 있는지 확인
+		// Header 크기 + Packet 크기만큼 있는지 확인
 		if (useSize < sizeof(NetHeader) + header.len)
 			break;
 
-		// packet code 확인
+		// packet code 확인 (공격 방어)
 		if (header.code != CPacket::GetCode())
 		{
 			DisconnectSession(pSession->sessionID);
@@ -519,7 +522,7 @@ bool NetServer::RecvProc(stSESSION* pSession, long cbTransferred)
 			return false;
 		}
 
-		// Len 확인 (음수거나 받을 수 있는 패킷 크기보다 클 때 -> 공격 방어)
+		// Len 확인
 		if (header.len < 0 || header.len > MAX_PACKET_LEN)
 		{
 			DisconnectSession(pSession->sessionID);
@@ -530,7 +533,7 @@ bool NetServer::RecvProc(stSESSION* pSession, long cbTransferred)
 		// PacketPool에서 packet 할당
 		CPacket* packet = CPacket::Alloc();
 
-		// packet 크기만큼 데이터 Dequeue (헤더포함)
+		// 패킷 헤더 + 패킷 크기만큼 페이로드에서 Dequeue
 		pSession->recvRingBuffer.Dequeue(packet->GetBufferPtr(), header.len + CPacket::en_PACKET::DEFAULT_HEADER_SIZE);
 
 		// packet 크기만큼 packet write pos 이동
@@ -560,6 +563,8 @@ bool NetServer::RecvProc(stSESSION* pSession, long cbTransferred)
 
 		// 컨텐츠 쪽 recv 처리
 		OnRecv(pSession->sessionID, packet);
+
+		// ... 코드 중략
 
 		useSize = pSession->recvRingBuffer.GetUseSize();
 	}
@@ -635,8 +640,11 @@ bool NetServer::RecvPost(stSESSION* pSession)
 	int wsaCnt = 1;
 	DWORD flags = 0;
 
-	int freeSize = pSession->recvRingBuffer.GetFreeSize();					// 링버퍼  여유 사이즈
-	int directEequeueSize = pSession->recvRingBuffer.DirectEnqueueSize();	// 링버퍼 내부에서 한번에 인큐 가능한 공간
+	// 링버퍼  여유 사이즈
+	int freeSize = pSession->recvRingBuffer.GetFreeSize();		
+
+	// 링버퍼 내부에서 한번에 인큐 가능한 공간
+	int directEequeueSize = pSession->recvRingBuffer.DirectEnqueueSize();	
 
 	if (freeSize == 0)
 		return false;
@@ -704,8 +712,8 @@ bool NetServer::SendPost(stSESSION* pSession)
 {
 	// 1회 송신 제한을 위한 flag 확인 (send 함수 호출하는 작업 자체가 느리기 때문에 call 횟수를 줄이기 위해 사용)
 	// false 면 미송신 상태이므로 send 작업 진행
-	// true 면 송신 중이므로 완료 통지가 오기 전까지 send 작업을 하면 안됨
-	if ((pSession->sendFlag == true) || true == InterlockedExchange8((char*)&pSession->sendFlag, true))
+	// true 면 송신 작업 중이므로 완료 통지가 오기 전까지 send 작업을 하지 않음
+	if (true == pSession->sendFlag || true == InterlockedExchange8((char*)&pSession->sendFlag, true))
 		return false;
 
 	// 다른 스레드에서 Dequeue 진행했을 경우 SendQ가 비어버릴 수 있음
@@ -804,9 +812,9 @@ bool NetServer::SendPost(stSESSION* pSession)
 // 송신 등록 - Packet 전송 후, 일정 시간이 지나면 연결을 끊어줌
 bool NetServer::SendPostReservedDisconnect(stSESSION* pSession)
 {
-	// 1회 송신 제한을 위한 flag 확인 (send 함수 호출하는 작업 자체가 느리기 때문에 call 횟수를 줄이기 위해 사용)
+	// 1회 송신 제한을 위한 flag 확인
 	// false 면 미송신 상태이므로 send 작업 진행
-	// true 면 송신 중이므로 완료 통지가 오기 전까지 send 작업을 하면 안됨
+	// true 면 송신 중이므로 완료 통지가 온 후에 Message Queue에 있던 나머지 패킷 전송
 	if ((pSession->sendFlag == true) || true == InterlockedExchange8((char*)&pSession->sendFlag, true))
 		return false;
 
@@ -1090,16 +1098,14 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 	}
 
 
-	// 헤더 셋팅 & 인코딩
+	// 패킷 헤더 셋팅 & 인코딩
 	packet->Encoding();
 
 	// Enqueue한 패킷은 Dequeue하기 전까지 해제되면 안되기 때문에 패킷 참조카운트 증가 -> Dequeue할 때 감소
 	packet->addRefCnt();
 
-	// packet 포인터를 SendQ에 enqueue
+	// 패킷 포인터를 SendQ에 enqueue
 	pSession->sendQ.Enqueue(packet);
-
-
 
 	// sendpost 함수 내에서 send call을 1회 제한함
 	// sendpost 함수를 호출하기 위한 PQCS도 1회 제한을 둬야 성능 개선됨
@@ -1127,8 +1133,8 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 
 void NetServer::ReleaseSession(stSESSION* pSession)
 {
-	// 다른 곳에서 해당 세션을 사용(I/O 작업 or sendpacket or disconnect)하는지 확인
-	// 참조카운트 상위 31bit 위치의 release flag가 1이 됨
+	// 다른 스레드에서 해당 세션을 사용하는지 확인
+	// 참조 카운트가 0이고 세션 해제 flag가 0이어야만 세션 해제 진입
 	if (InterlockedCompareExchange64(&pSession->ioRefCount, RELEASEMASKING, 0) != 0)
 		return;
 
@@ -1223,7 +1229,7 @@ bool NetServer::DisconnectSession(uint64_t sessionID)
 	// disconnected flag를 true로 변경하여 sendPacket 과 recvPost 함수 진입을 막음
 	InterlockedExchange8((char*)&pSession->isDisconnected, true);
 
-	// 현재 진행 중이었던 IO 작업 모두 취소
+	// 현재 진행 중이던 IO 작업 모두 취소
 	CancelIoEx((HANDLE)pSession->m_socketClient, NULL);
 
 	// Disconnect 함수에서 증가시킨 세션 참조 카운트 감소

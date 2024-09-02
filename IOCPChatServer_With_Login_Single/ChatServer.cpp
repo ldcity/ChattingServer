@@ -1,5 +1,6 @@
 #include "PCH.h"
 #include "ChatServer.h"
+#include <conio.h>
 
 // Job Worker Thread
 unsigned __stdcall JobWorkerThread(PVOID param)
@@ -7,16 +8,6 @@ unsigned __stdcall JobWorkerThread(PVOID param)
 	ChatServer* chatServ = (ChatServer*)param;
 
 	chatServ->JobWorkerThread_serv();
-
-	return 0;
-}
-
-// Redis Job Worker Thread
-unsigned __stdcall RedisJobWorkerThread(PVOID param)
-{
-	ChatServer* chatServ = (ChatServer*)param;
-
-	chatServ->RedisJobWorkerThread_serv();
 
 	return 0;
 }
@@ -114,8 +105,15 @@ bool ChatServer::ChatServerStart()
 	int redisPort;
 	chatServerInfoTxt.GetValue(L"REDIS.PORT", &redisPort);
 
-	redis = new CRedis();
-	redis->Connect(redisIP, redisPort);
+	// Redis Worker Thread 생성 및 시작 - RedisConnector 객체 생성 및 Redis 연결
+	redisWorkerThread = new RedisWorkerThread(this, redisIP, redisPort);
+
+	if (redisWorkerThread == nullptr ||
+		!redisWorkerThread->StartThread(RedisWorkerThread::ThreadFunction, redisWorkerThread))
+	{
+		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Redis Connect Failed...");
+		return false;
+	}
 
 	// Create Manual Event
 	m_runEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
@@ -147,16 +145,6 @@ bool ChatServer::ChatServerStart()
 		return false;
 	}
 
-	// Create Auto Event
-	m_redisJobEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-	if (m_redisJobEvent == NULL)
-	{
-		int eventError = WSAGetLastError();
-		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"CreateEvent() Error : %d", eventError);
-
-		return false;
-	}
-
 	// Monitering Thread
 	m_moniteringThread = (HANDLE)_beginthreadex(NULL, 0, MoniteringThread, this, CREATE_SUSPENDED, NULL);
 	if (m_moniteringThread == NULL)
@@ -180,30 +168,16 @@ bool ChatServer::ChatServerStart()
 
 	chatLog->logger(dfLOG_LEVEL_DEBUG, __LINE__, L"Create Job Worker Thread");
 
-	// Redis Job Worker Thread
-	m_redisJobHandle = (HANDLE)_beginthreadex(NULL, 0, RedisJobWorkerThread, this, 0, NULL);
-	if (m_redisJobHandle == NULL)
-	{
-		int threadError = GetLastError();
-		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"_beginthreadex() Error : %d", threadError);
-
-		return false;
-	}
-
 	chatLog->logger(dfLOG_LEVEL_DEBUG, __LINE__, L"Create Redis Job Worker Thread");
 
 	WaitForSingleObject(m_moniteringThread, INFINITE);
 	WaitForSingleObject(m_jobHandle, INFINITE);
-	WaitForSingleObject(m_redisJobHandle, INFINITE);
 
 	return true;
 }
 
 bool ChatServer::ChatServerStop()
 {
-	chatLog->~Log();
-	logger->~Log();
-
 	if (m_mapPlayer.size() > 0)
 	{
 		for (auto iter = m_mapPlayer.begin(); iter != m_mapPlayer.end();)
@@ -226,13 +200,12 @@ bool ChatServer::ChatServerStop()
 
 	CloseHandle(m_jobHandle);
 	CloseHandle(m_jobEvent);
-	CloseHandle(m_redisJobEvent);
-	CloseHandle(m_redisJobHandle);
 	CloseHandle(m_moniteringThread);
 	CloseHandle(m_moniterEvent);
 	CloseHandle(m_runEvent);
 
-	delete redis;
+	if (redisWorkerThread)
+		delete redisWorkerThread;
 
 	// NetServer 종료
 	this->Stop();
@@ -256,7 +229,7 @@ bool ChatServer::MoniterThread_serv()
 			__int64 chatRes = InterlockedExchange64(&m_chattingResTPS, 0);
 
 			// 모니터링 서버 전송용 데이터
-			__int64 iJobThreadUpdateCnt = InterlockedExchange64(&m_jobThreadUpdateCnt, 0);
+			__int64 iJobThreadUpdateCnt = InterlockedExchange64(&m_jobUpdateTPS, 0);
 
 			__int64 iSessionCnt = sessionCnt;
 			__int64 iLoginPlayerCnt = m_loginPlayerCnt;
@@ -271,38 +244,35 @@ bool ChatServer::MoniterThread_serv()
 			__int64 packetPoolAllocCnt = CPacket::GetPoolAllocCnt();
 			__int64 packetPoolFreeCnt = CPacket::GetPoolFreeCnt();
 
-			wprintf(L"==============================================================\n");
-			wprintf(L"%s\n", startTime);
-
 			wprintf(L"------------------------[Moniter]----------------------------\n");
 			performMoniter.PrintMonitorData();
 
 			wprintf(L"------------------------[Network]----------------------------\n");
 			wprintf(L"[Session              ] Total    : %10I64d\n", iSessionCnt);
-			wprintf(L"[Accept               ] Total    : %10I64d   TPS : %10I64d\n", acceptCount, InterlockedExchange64(&acceptTPS, 0));
-			wprintf(L"[Release              ] Total    : %10I64d   TPS : %10I64d\n", releaseCount, InterlockedExchange64(&releaseTPS, 0));
-			wprintf(L"[Recv Call            ] Total    : %10I64d   TPS : %10I64d\n", recvCallCount, InterlockedExchange64(&recvCallTPS, 0));
-			wprintf(L"[Send Call            ] Total    : %10I64d   TPS : %10I64d\n", sendCallCount, InterlockedExchange64(&sendCallTPS, 0));
-			wprintf(L"[Recv Bytes           ] Total    : %10I64d   TPS : %10I64d\n", recvBytes, InterlockedExchange64(&recvBytesTPS, 0));
-			wprintf(L"[Send Bytes           ] Total    : %10I64d   TPS : %10I64d\n", sendBytes, InterlockedExchange64(&sendBytesTPS, 0));
-			wprintf(L"[Recv  Packet         ] Total    : %10I64d   TPS : %10I64d\n", recvMsgCount, InterlockedExchange64(&recvMsgTPS, 0));
-			wprintf(L"[Send  Packet         ] Total    : %10I64d   TPS : %10I64d\n", sendMsgCount, InterlockedExchange64(&sendMsgTPS, 0));
-			wprintf(L"[Pending TPS          ] Recv     : %10I64d   Send: %10I64d\n", InterlockedExchange64(&recvPendingTPS, 0), InterlockedExchange64(&sendPendingTPS, 0));
-			wprintf(L"------------------------[Contents]----------------------------\n");
-			wprintf(L"[JobQ                 ] Size     : %10I64d\n", chatJobQ.GetSize());
-			wprintf(L"[Update Job           ] Enq Cnt  : %10I64d   Thread Cnt : %10I64d\n", InterlockedExchange64(&m_jobUpdatecnt, 0), iJobThreadUpdateCnt);
-			wprintf(L"[Redis Update         ] Enqueue  : %10I64d   TPS         : %10I64d\n", InterlockedExchange64(&m_redisJobEnqueueTPS, 0), InterlockedExchange64(&m_redisJobThreadUpdateTPS, 0));
-			wprintf(L"[Redis Get            ] Total    : %10I64d   TPS        : %10I64d\n", m_redisGetCnt, InterlockedExchange64(&m_redisGetTPS, 0));
-			wprintf(L"[Job Pool             ] Capacity : %10llu    Use        : %10llu    Alloc : %10llu    Free : %10llu\n",
-				jobPoolCapacity, jobPoolUseCnt, jobPoolAllocCnt, jobPoolFreeCnt);
-			wprintf(L"[Player Pool          ] Capacity : %10llu    Use        : %10llu    Alloc : %10llu    Free : %10llu\n",
-				playerPool.GetCapacity(), playerPool.GetObjectUseCount(), playerPool.GetObjectAllocCount(), playerPool.GetObjectFreeCount());
-			wprintf(L"[Packet Pool          ] Capacity : %10llu    Use        : %10llu    Alloc : %10llu    Free : %10llu\n",
+			wprintf(L"[Accept               ] Total    : %10I64d        TPS        : %10I64d\n", acceptCount, InterlockedExchange64(&acceptTPS, 0));
+			wprintf(L"[Release              ] Total    : %10I64d        TPS        : %10I64d\n", releaseCount, InterlockedExchange64(&releaseTPS, 0));
+			wprintf(L"[Recv Call            ] Total    : %10I64d        TPS        : %10I64d\n", recvCallCount, InterlockedExchange64(&recvCallTPS, 0));
+			wprintf(L"[Send Call            ] Total    : %10I64d        TPS        : %10I64d\n", sendCallCount, InterlockedExchange64(&sendCallTPS, 0));
+			wprintf(L"[Recv Bytes           ] Total    : %10I64d        TPS        : %10I64d\n", recvBytes, InterlockedExchange64(&recvBytesTPS, 0));
+			wprintf(L"[Send Bytes           ] Total    : %10I64d        TPS        : %10I64d\n", sendBytes, InterlockedExchange64(&sendBytesTPS, 0));
+			wprintf(L"[Recv  Packet         ] Total    : %10I64d        TPS        : %10I64d\n", recvMsgCount, InterlockedExchange64(&recvMsgTPS, 0));
+			wprintf(L"[Send  Packet         ] Total    : %10I64d        TPS        : %10I64d\n", sendMsgCount, InterlockedExchange64(&sendMsgTPS, 0));
+			wprintf(L"[Pending TPS          ] Recv     : %10I64d        Send       : %10I64d\n", InterlockedExchange64(&recvPendingTPS, 0), InterlockedExchange64(&sendPendingTPS, 0));
+			wprintf(L"-------------------[Chatting Contents]------------------------\n");
+			wprintf(L"[JobQ                 ] Main       : %10I64d      Redis     : %10I64d\n", chatJobQ.GetSize(), redisWorkerThread->mJobQ.GetSize());
+			wprintf(L"[Main Job             ] TPS        : %10I64d      Total     : %10I64d\n", iJobThreadUpdateCnt, m_jobUpdatecnt);
+			wprintf(L"[Redis Job            ] TPS        : %10I64d      Total     : %10I64d\n", InterlockedExchange64(&redisWorkerThread->mJobThreadUpdateTPS, 0), redisWorkerThread->mJobThreadUpdateCnt);
+			wprintf(L"[Login Req Job        ] TPS        : %10I64d      Total     : %10I64d \n",
+				InterlockedExchange64(&m_loginTPS, 0), m_loginCount);
+			wprintf(L"[Login Res Job        ] TPS        : %10I64d\n", InterlockedExchange64(&m_loginResJobUpdateTPS, 0));
+			wprintf(L"[Job Pool Use         ] Main       : %10llu       Redis     : %10llu      Player      : %10llu\n",
+				jobPoolUseCnt,  redisWorkerThread->mJobPool.GetObjectUseCount(), playerPool.GetObjectUseCount());
+			wprintf(L"[Packet Pool          ] Capacity   : %10llu       Use       : %10llu      Alloc : %10llu    Free : %10llu\n",
 				packetPoolCapacity, packetPoolUseCnt, packetPoolAllocCnt, packetPoolFreeCnt);
-			wprintf(L"[Packet List          ] Login    : %10I64d   SectorMove : %10I64d    Chat  : %10I64d (Aroung Avg : %.2f)\n",
-				InterlockedExchange64(&m_loginPacketTPS, 0), InterlockedExchange64(&m_sectorMovePacketTPS, 0), chatReq, (double)chatRes / chatReq);
-			wprintf(L"[Player               ] Create   : %10I64d   Login      : %10I64d\n", m_totalPlayerCnt, iLoginPlayerCnt);
-			wprintf(L"[Delete               ] Total    : %10I64d   TPS        : %10I64d\n", m_deletePlayerCnt, InterlockedExchange64(&m_deletePlayerTPS, 0));
+			wprintf(L"[Packet List          ] SectorMove : %10I64d      Chat      : %10I64d (Aroung Avg : %.2f)\n",
+				InterlockedExchange64(&m_sectorMovePacketTPS, 0), chatReq, (double)chatRes / chatReq);
+			wprintf(L"[Player               ] Create     : %10I64d      Login     : %10I64d\n", m_totalPlayerCnt, iLoginPlayerCnt);
+			wprintf(L"[Delete               ] Total      : %10I64d      TPS       : %10I64d\n", m_deletePlayerCnt, InterlockedExchange64(&m_deletePlayerTPS, 0));
 			wprintf(L"==============================================================\n\n");
 
 			// 모니터링 서버로 데이터 전송
@@ -356,11 +326,26 @@ bool ChatServer::MoniterThread_serv()
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_UPDATEMSG_POOL, (int)jobPoolUseCnt, iTime, jobPacket);
 			lanClient.SendPacket(jobPacket);
 			CPacket::Free(jobPacket);
+
 		}
 	}
 
 	return true;
 }
+
+
+void ChatServer::SendJob(uint64_t sessionID, WORD type, CPacket* packet)
+{
+	// 저장 성공 시, 로그인 응답 처리에 대한 작업을 Job Worker Thread로 넘김
+	ChatJob* job = jobPool.Alloc();
+	job->sessionID = sessionID;
+	job->type = type;
+	job->packet = packet;
+
+	chatJobQ.Enqueue(job);
+	SetEvent(m_jobEvent);
+}
+
 
 bool ChatServer::JobWorkerThread_serv()
 {
@@ -378,6 +363,7 @@ bool ChatServer::JobWorkerThread_serv()
 		{
 			if (chatJobQ.Dequeue(chatJob))
 			{
+				PRO_BEGIN(L"Total_JobTime");
 				// Job Type에 따른 분기 처리
 				switch (chatJob->type)
 				{
@@ -393,8 +379,9 @@ bool ChatServer::JobWorkerThread_serv()
 					PacketProc(chatJob->sessionID, chatJob->packet);	// 패킷 처리
 					break;
 
-				case JobType::REDIS_RES:
-					netPacketProc_ResLoginRedis(chatJob->sessionID, chatJob->packet);	// 로그인 응답
+				// 컨텐츠에서 발생한 로그인 응답 패킷 처리
+				case JobType::LOGIN_RES:
+					NetPacketProc_ResLogin(chatJob->sessionID, chatJob->packet);
 					break;
 
 				case JobType::TIMEOUT:
@@ -413,76 +400,11 @@ bool ChatServer::JobWorkerThread_serv()
 				// JobPool에 Job 객체 반환
 				jobPool.Free(chatJob);
 
-				InterlockedIncrement64(&m_jobThreadUpdateCnt);
+				InterlockedIncrement64(&m_jobUpdatecnt);
+				InterlockedIncrement64(&m_jobUpdateTPS);
+
+				PRO_END(L"Total_JobTime");
 			}
-		}
-	}
-}
-
-bool ChatServer::RedisJobWorkerThread_serv()
-{
-	DWORD threadID = GetCurrentThreadId();
-
-	while (true)
-	{
-		// JobQ에 Job이 삽입되면 이벤트 발생하여 깨어남
-		WaitForSingleObject(m_redisJobEvent, INFINITE);
-
-		RedisJob* redisJob = nullptr;
-
-		// Job이 없을 때까지 update 반복
-		while (redisJobQ.GetSize() > 0)
-		{
-			if (redisJobQ.Dequeue(redisJob))
-			{
-				std::string accountNoStr = std::to_string(redisJob->accountNo);
-				// 비동기 redis get 요청
-				redis->asyncGet(accountNoStr, [=](const cpp_redis::reply& reply) {
-					BYTE status = en_PACKET_CS_MONITOR_TOOL_RES_LOGIN::dfMONITOR_TOOL_LOGIN_OK;
-
-					// redis에 인증 키가 없으면 실패!
-					if (reply.is_null())
-					{
-						status = en_PACKET_CS_MONITOR_TOOL_RES_LOGIN::dfMONITOR_TOOL_LOGIN_ERR_NOSERVER;
-					}
-					// redis에 인증 키가 있고, 클라이언트가 갖고 있는 인증 키와 같다면 성공!
-					else
-					{	// 인증 토큰의 문자열 얻어옴
-						std::string redisSessionKey = reply.as_string();
-
-						InterlockedIncrement64(&m_redisGetCnt);
-						InterlockedIncrement64(&m_redisGetTPS);
-
-						// 인증 토큰이 다르면 로그인 실패!
-						if (redisSessionKey.compare(redisJob->sessionKey) != 0)
-						{
-							status = en_PACKET_CS_MONITOR_TOOL_RES_LOGIN::dfMONITOR_TOOL_LOGIN_ERR_NOSERVER;
-						}
-					}
-
-					// 나머지 작업 처리를 job queue로 던짐
-					ChatJob* job = jobPool.Alloc();
-					job->sessionID = redisJob->sessionID;
-					job->type = JobType::REDIS_RES;
-
-					// 로그인 응답 패킷 전송
-					CPacket* resLoginPacket = CPacket::Alloc();
-
-					// 로그인 응답 패킷 Setting
-					mpResLogin(resLoginPacket, status, redisJob->accountNo);
-
-					job->packet = resLoginPacket;
-
-					chatJobQ.Enqueue(job);
-					InterlockedIncrement64(&m_jobUpdatecnt);
-					SetEvent(m_jobEvent);
-
-					// JobPool에 Job 객체 반환
-					redisJobPool.Free(redisJob);
-
-					InterlockedIncrement64(&m_redisJobThreadUpdateTPS);
-				});
-			}			
 		}
 	}
 }
@@ -495,19 +417,19 @@ bool ChatServer::PacketProc(uint64_t sessionID, CPacket* packet)
 	switch (type)
 	{
 	case en_PACKET_CS_CHAT_REQ_LOGIN:
-		netPacketProc_Login(sessionID, packet);					// 로그인 요청
+		NetPacketProc_Login(sessionID, packet);					// 로그인 요청
 		break;
 
 	case en_PACKET_CS_CHAT_REQ_SECTOR_MOVE:
-		netPacketProc_SectorMove(sessionID, packet);			// 섹터 이동 요청
+		NetPacketProc_SectorMove(sessionID, packet);			// 섹터 이동 요청
 		break;
 
 	case en_PACKET_CS_CHAT_REQ_MESSAGE:
-		netPacketProc_Chatting(sessionID, packet);				// 채팅 보내기
+		NetPacketProc_Chatting(sessionID, packet);				// 채팅 보내기
 		break;
 
 	case en_PACKET_CS_CHAT_REQ_HEARTBEAT:
-		netPacketProc_HeartBeat(sessionID, packet);				// 하트비트
+		NetPacketProc_HeartBeat(sessionID, packet);				// 하트비트
 		break;
 
 	case en_PACKET_ON_TIMEOUT:
@@ -621,6 +543,7 @@ bool ChatServer::CreatePlayer(uint64_t sessionID)
 	m_mapPlayer.insert({ sessionID, player });		// 전체 Player를 관리하는 map에 insert
 
 	InterlockedIncrement64(&m_totalPlayerCnt);
+	InterlockedIncrement64(&m_loginPlayerCnt);
 
 	return true;
 }
@@ -653,31 +576,6 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 
 	InterlockedDecrement64(&m_loginPlayerCnt);
 	InterlockedIncrement64(&m_deletePlayerCnt);
-	InterlockedIncrement64(&m_deletePlayerTPS);
- 
-	//auto accountIter = m_accountNo.equal_range(player->accountNo);		// 중복 계정이 있을 경우, 단일 iterator가 나오지 않음
-
-	//for (; accountIter.first != accountIter.second;)
-	//{
-	//	// 이 중복건에 대해서는 (acocuntNo는 같으나 sessionID가 다름)
-	//	if (player->sessionID != accountIter.first->second)
-	//	{
-	//		chatLog->logger(dfLOG_LEVEL_DEBUG, __LINE__, L"DeletePlayer # duplicated > prevID : %016llx\tcurID : %016llx\tprevAccountNo : %IId\tcurAccountNo : %IId",
-	//			accountIter.first->second, player->sessionID, accountIter.first->first, player->accountNo);
-	//		++accountIter.first;
-	//	}
-	//	else
-	//	{
-	//		// 중복 건에서 이전 삭제해야할 계정을 삭제
-	//		accountIter.first = m_accountNo.erase(accountIter.first);
-
-	//		InterlockedDecrement64(&m_loginPlayerCnt);
-	//		InterlockedIncrement64(&m_deletePlayerCnt);
-	//		InterlockedIncrement64(&m_deletePlayerTPS);
-
-	//		break;
-	//	}
-	//}
 
 	playerPool.Free(player);		// PlayerPool에 player 반환
 
@@ -686,41 +584,16 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 	return true;
 }
 
-// Redis에 저장된 Key의 유효성 판단 (동기)
-bool ChatServer::Authentication(Player* player)
-{
-	// redis에 저장된 인증토큰과 player의 토큰 비교
-	std::string accountNoStr = std::to_string(player->accountNo);
-
-	auto reply = redis->syncGet(accountNoStr);
-
-	std::string redisSessionKey;
-	
-	// 인증 토큰이 Redis에 존재함
-	if (!reply.is_null())
-	{
-		// 인증 토큰의 문자열 얻어옴
-		redisSessionKey = reply.as_string();
-
-		InterlockedIncrement64(&m_redisGetCnt);
-		InterlockedIncrement64(&m_redisGetTPS);
-	}
-
-	// redis에서 갖고온 토큰이 없거나 토큰이 다를 경우 유효하지 않은 접근
-	if (reply.is_null() || 0 != strcmp(redisSessionKey.c_str(), player->sessionKey))
-		return false;
-	// 로그인 유효성 판단 성공
-	else
-		return true;
-}
-
 //--------------------------------------------------------------------------------------
 // Packet Proc
 //--------------------------------------------------------------------------------------
 
 // 로그인 요청
-void ChatServer::netPacketProc_Login(uint64_t sessionID, CPacket* packet)
+void ChatServer::NetPacketProc_Login(uint64_t sessionID, CPacket* packet)
 {
+	InterlockedIncrement64(&m_loginCount);
+	InterlockedIncrement64(&m_loginTPS);
+
 	// Packet 크기에 대한 예외 처리 
 	if (packet->GetDataSize() < sizeof(INT64) + ID_MAX_LEN * sizeof(wchar_t) + NICKNAME_MAX_LEN * sizeof(wchar_t) + MSG_MAX_LEN * sizeof(char))
 	{
@@ -733,51 +606,11 @@ void ChatServer::netPacketProc_Login(uint64_t sessionID, CPacket* packet)
 		return;
 	}
 
-	InterlockedIncrement64(&m_loginPacketTPS);
-	InterlockedIncrement64(&m_loginPlayerCnt);
-
 	INT64 _accountNo = 0;
 	BYTE status = en_PACKET_CS_LOGIN_RES_LOGIN::dfLOGIN_STATUS_OK;
 
 	// accountNo를 역직렬화해서 얻어옴
 	*packet >> _accountNo;
-	
-	//// player 찾기
-	//Player* player = FindPlayer(sessionID);
-	//if (player == nullptr)
-	//{
-	//	chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Login # %016llx Player Not Found!", sessionID);
-	//	return;
-	//}
-	//else
-	//{
-	//	// Player accountNo 중복 체크 (중복 로그인 확인)
-	//	if (!CheckPlayer(player, _accountNo))
-	//	{
-	//		m_accountNo.erase(_accountNo);
-	//		DisconnectSession(sessionID);
-	//		return;
-	//	}
-
-	//	// 계정 관리 map에 accountNo insert
-	//	//m_accountNo.insert({ _accountNo, sessionID });
-	//	m_accountNo.insert(_accountNo);
-
-
-	//	player->recvLastTime = timeGetTime();
-	//	player->accountNo = _accountNo;
-
-	//	// 패킷 내에 나머지 데이터들을 모두 역직렬화해서 얻어옴
-	//	packet->GetData((char*)player->ID, ID_MAX_LEN * sizeof(wchar_t));
-	//	packet->GetData((char*)player->nickname, NICKNAME_MAX_LEN * sizeof(wchar_t));
-	//	packet->GetData((char*)player->sessionKey, MSG_MAX_LEN);
-
-	//	player->sessionKey[MSG_MAX_LEN] = L'\0';
-	//	
-	//	// 비동기 redis get 요청
-	//	AsyncAuthentication(player);
-	//}
-
 
 	// player 찾기
 	Player* player = FindPlayer(sessionID);
@@ -787,18 +620,6 @@ void ChatServer::netPacketProc_Login(uint64_t sessionID, CPacket* packet)
 		CRASH();
 	}
 
-
-	//// Player accountNo 중복 체크 (중복 로그인 확인)
-	//if (!CheckPlayer(player, _accountNo))
-	//{
-	//	m_accountNo.erase(_accountNo);
-	//	DisconnectSession(sessionID);
-	//	return;
-	//}
-
-	// 계정 관리 set에 accountNo insert
-	//m_accountNo.insert(_accountNo);
-	// 
 	// 중복 로그인 체크
 	if (!CheckPlayer(sessionID, _accountNo))
 		return;
@@ -814,59 +635,13 @@ void ChatServer::netPacketProc_Login(uint64_t sessionID, CPacket* packet)
 	player->sessionKey[MSG_MAX_LEN] = L'\0';
 
 	// redis에 저장된 인증토큰과 player의 토큰 비교
-	std::string sessionKeyStr;
-	sessionKeyStr.assign(player->sessionKey);
+	std::string sessionKeyStr(player->sessionKey);
 
-	//// 동기
-	//auto reply = redis->syncGet(accountNoStr);
-
-	//std::string redisSessionKey;
-
-	//// 인증 토큰이 Redis에 존재함
-	//if (!reply.is_null())
-	//{
-	//	// 인증 토큰의 문자열 얻어옴
-	//	redisSessionKey = reply.as_string();
-
-	//	InterlockedIncrement64(&m_redisGetCnt);
-	//	InterlockedIncrement64(&m_redisGetTPS);
-	//}
-
-	//// redis에서 갖고온 토큰이 없거나 토큰이 다를 경우 유효하지 않은 접근
-	//if (reply.is_null() || 0 != strcmp(redisSessionKey.c_str(), player->sessionKey))
-	//	status = false;
-	//// 로그인 유효성 판단 성공
-	//else
-	//	status = true;
-
-	//InterlockedIncrement64(&m_loginPacketTPS);
-	//InterlockedIncrement64(&m_loginPlayerCnt);
-
-	//// 로그인 응답 패킷 전송
-	//CPacket* resLoginPacket = CPacket::Alloc();
-
-	//// 로그인 응답 패킷 Setting
-	//mpResLogin(resLoginPacket, status, _accountNo);
-
-	//// 로그인 응답 패킷 전송
-	//SendPacket(sessionID, resLoginPacket);
-
-	//// 응답 패킷 반환
-	//CPacket::Free(resLoginPacket);
-
-	// 비동기
-	RedisJob* job = redisJobPool.Alloc();
-	job->sessionID = sessionID;
-	job->accountNo = _accountNo;
-	job->sessionKey = sessionKeyStr;
-
-	redisJobQ.Enqueue(job);
-	SetEvent(m_redisJobEvent);
-	InterlockedIncrement64(&m_redisJobEnqueueTPS);
+	redisWorkerThread->EnqueueJob(RedisWorkerThread::REDISTYPE::GET, sessionID, _accountNo, sessionKeyStr, nullptr);
 }
 
 // 섹터 이동 요청
-void ChatServer::netPacketProc_SectorMove(uint64_t sessionID, CPacket* packet)
+void ChatServer::NetPacketProc_SectorMove(uint64_t sessionID, CPacket* packet)
 {
 	// Packet 크기에 대한 예외 처리 
 	if (packet->GetDataSize() < sizeof(INT64) + sizeof(WORD) * 2)
@@ -959,16 +734,20 @@ void ChatServer::netPacketProc_SectorMove(uint64_t sessionID, CPacket* packet)
 
 	CPacket* resPacket = CPacket::Alloc();
 
-	mpResSectorMove(resPacket, player->accountNo, player->sectorX, player->sectorY);
+	MPResSectorMove(resPacket, player->accountNo, player->sectorX, player->sectorY);
 
+	PRO_BEGIN(L"Move_SendPacket");
+	
 	// 섹터 이동 응답 패킷 전송
 	SendPacket(sessionID, resPacket);
+
+	PRO_END(L"Move_SendPacket");
 
 	CPacket::Free(resPacket);
 }
 
 // 채팅 보내기
-void ChatServer::netPacketProc_Chatting(uint64_t sessionID, CPacket* packet)
+void ChatServer::NetPacketProc_Chatting(uint64_t sessionID, CPacket* packet)
 {
 	// Packet 크기에 대한 예외 처리 
 	if (packet->GetDataSize() < sizeof(INT64) + sizeof(WORD) + sizeof(wchar_t))
@@ -1036,13 +815,14 @@ void ChatServer::netPacketProc_Chatting(uint64_t sessionID, CPacket* packet)
 
 	CPacket* resPacket = CPacket::Alloc();
 
-	mpResChatMessage(resPacket, player->accountNo, player->ID, player->nickname, msgLen, (WCHAR*)packet->GetReadBufferPtr());
+	MPResChatMessage(resPacket, player->accountNo, player->ID, player->nickname, msgLen, (WCHAR*)packet->GetReadBufferPtr());
 	packet->MoveReadPos(msgLen);
 
 	// player가 존재하는 섹터의 주변 9개 섹터 구하기
 	st_SECTOR_AROUND sectorAround;
 	GetSectorAround(player->sectorX, player->sectorY, &sectorAround);
 
+	PRO_BEGIN(L"Chatting_SendPacket");
 	// 주변 섹터에 존재하는 Player들에게 채팅 응답 패킷 전송
 	for (int i = 0; i < sectorAround.iCount; i++)
 	{
@@ -1058,12 +838,14 @@ void ChatServer::netPacketProc_Chatting(uint64_t sessionID, CPacket* packet)
 		}
 	}
 
+	PRO_END(L"Chatting_SendPacket");
+
 	//resPacket->subRefCnt();
 	CPacket::Free(resPacket);
 }
 
 // 하트비트 - 현재는 아무런 기능이 없는 상태
-void ChatServer::netPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet)
+void ChatServer::NetPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet)
 {
 	// 예외 처리 -> 하트비트 패킷은 타입 외에 추가적인 데이터가 있으면 안됨
 	if (packet->GetDataSize() > 0)
@@ -1083,8 +865,6 @@ void ChatServer::netPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet)
 	{
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"HeartBeat Request Packet > Player Not Found");
 
-		DisconnectSession(player->sessionID);
-
 		return;
 	}
 
@@ -1092,8 +872,10 @@ void ChatServer::netPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet)
 }
 
 // 비동기 redis 요청 결과를 얻은 뒤, 이후 로그인 job 처리
-void ChatServer::netPacketProc_ResLoginRedis(uint64_t sessionID, CPacket* packet)
+void ChatServer::NetPacketProc_ResLogin(uint64_t sessionID, CPacket* packet)
 {
+	InterlockedIncrement64(&m_loginResJobUpdateTPS);
+
 	// 로그인 응답 패킷 전송
 	SendPacket(sessionID, packet);
 }

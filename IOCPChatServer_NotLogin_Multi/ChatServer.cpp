@@ -1,16 +1,6 @@
 #include "PCH.h"
 #include "ChatServer.h"
-
-
-//// Job Worker Thread
-//unsigned __stdcall JobWorkerThread(PVOID param)
-//{
-//	ChatServer* chatServ = (ChatServer*)param;
-//
-//	chatServ->JobWorkerThread_serv();
-//
-//	return 0;
-//}
+#include <conio.h>
 
 // Worker Thread Call
 unsigned __stdcall MoniteringThread(void* param)
@@ -150,8 +140,6 @@ bool ChatServer::ChatServerStop()
 		}
 	}
 
-	// m_Sector 삭제해야함
-
 
 	CloseHandle(m_moniteringThread);
 	CloseHandle(m_moniterEvent);
@@ -163,10 +151,12 @@ bool ChatServer::ChatServerStop()
 	return true;
 }
 
+
 // Monitering Thread
 bool ChatServer::MoniterThread_serv()
 {
 	DWORD threadID = GetCurrentThreadId();
+
 
 	while (true)
 	{
@@ -179,24 +169,15 @@ bool ChatServer::MoniterThread_serv()
 			__int64 chatRes = InterlockedExchange64(&m_chattingResTPS, 0);
 
 			// 모니터링 서버 전송용 데이터
-			__int64 iJobThreadUpdateCnt = InterlockedExchange64(&m_jobThreadUpdateCnt, 0);
 			__int64 iSessionCnt = sessionCnt;
 			__int64 iLoginPlayerCnt = m_loginPlayerCnt;
 
 			__int64 iUpdateCnt = InterlockedExchange64(&m_UpdateTPS, 0);
 
-			//__int64 jobPoolCapacity = jobPool.GetCapacity();
-			//__int64 jobPoolUseCnt = jobPool.GetObjectUseCount();
-			//__int64 jobPoolAllocCnt = jobPool.GetObjectAllocCount();
-			//__int64 jobPoolFreeCnt = jobPool.GetObjectFreeCount();
-
 			__int64 packetPoolCapacity = CPacket::GetPoolCapacity();
 			__int64 packetPoolUseCnt = CPacket::GetPoolUseCnt();
 			__int64 packetPoolAllocCnt = CPacket::GetPoolAllocCnt();
 			__int64 packetPoolFreeCnt = CPacket::GetPoolFreeCnt();
-
-			wprintf(L"==============================================================\n");
-			wprintf(L"%s\n", startTime);
 
 			wprintf(L"------------------------[Moniter]----------------------------\n");
 			performMoniter.PrintMonitorData();
@@ -206,6 +187,8 @@ bool ChatServer::MoniterThread_serv()
 			wprintf(L"[Accept               ] Total    : %10I64d   TPS : %10I64d\n", acceptCount, InterlockedExchange64(&acceptTPS, 0));
 			wprintf(L"[Release              ] Total    : %10I64d   TPS : %10I64d\n", releaseCount, InterlockedExchange64(&releaseTPS, 0));
 			wprintf(L"[Recv Call            ] Total    : %10I64d   TPS : %10I64d\n", recvCallCount, InterlockedExchange64(&recvCallTPS, 0));
+			wprintf(L"[PQCS                 ] Total    : %10I64d   TPS : %10I64d\n", pqcsCallTotal, InterlockedExchange64(&pqcsCallTPS, 0));
+			wprintf(L"[Send Packet Func     ] Total    : %10I64d   TPS : %10I64d\n", sendpacketTotal, InterlockedExchange64(&sendpacketTPS, 0));
 			wprintf(L"[Send Call            ] Total    : %10I64d   TPS : %10I64d\n", sendCallCount, InterlockedExchange64(&sendCallTPS, 0));
 			wprintf(L"[Recv Bytes           ] Total    : %10I64d   TPS : %10I64d\n", recvBytes, InterlockedExchange64(&recvBytesTPS, 0));
 			wprintf(L"[Send Bytes           ] Total    : %10I64d   TPS : %10I64d\n", sendBytes, InterlockedExchange64(&sendBytesTPS, 0));
@@ -213,10 +196,7 @@ bool ChatServer::MoniterThread_serv()
 			wprintf(L"[Send  Packet         ] Total    : %10I64d   TPS : %10I64d\n", sendMsgCount, InterlockedExchange64(&sendMsgTPS, 0));
 			wprintf(L"[Pending TPS          ] Recv     : %10I64d   Send: %10I64d\n", InterlockedExchange64(&recvPendingTPS, 0), InterlockedExchange64(&sendPendingTPS, 0));
 			wprintf(L"------------------------[Contents]----------------------------\n");
-			//wprintf(L"[JobQ                 ] Size     : %10I64d\n", chatJobQ.GetSize());
-			wprintf(L"[Update               ] Enq Cnt  : %10I64d   Thread Cnt : %10I64d  TPS : %10I64d\n", InterlockedExchange64(&m_jobUpdatecnt, 0), iJobThreadUpdateCnt, iUpdateCnt);
-			//wprintf(L"[Job Pool             ] Capacity : %10llu   Use        : %10llu    Alloc : %10llu    Free : %10llu\n",
-			//	jobPoolCapacity, jobPoolUseCnt, jobPoolAllocCnt, jobPoolFreeCnt);
+			wprintf(L"[Update               ] TPS : %10I64d\n", iUpdateCnt);
 			wprintf(L"[Player Pool          ] Capacity : %10llu   Use        : %10llu    Alloc : %10llu    Free : %10llu\n",
 				playerPool.GetCapacity(), playerPool.GetObjectUseCount(), playerPool.GetObjectAllocCount(), playerPool.GetObjectFreeCount());
 			wprintf(L"[Packet Pool          ] Capacity : %10llu   Use        : %10llu    Alloc : %10llu    Free : %10llu\n",
@@ -263,7 +243,7 @@ bool ChatServer::MoniterThread_serv()
 
 			// ChatServer UPDATE 스레드 초당 초리 횟수
 			CPacket* updataPacket = CPacket::Alloc();
-			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_UPDATE_TPS, (int)iJobThreadUpdateCnt, iTime, updataPacket);
+			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_UPDATE_TPS, (int)iUpdateCnt, iTime, updataPacket);
 			lanClient.SendPacket(updataPacket);
 			CPacket::Free(updataPacket);
 
@@ -272,56 +252,11 @@ bool ChatServer::MoniterThread_serv()
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_PACKET_POOL, (int)packetPoolUseCnt, iTime, poolPacket);
 			lanClient.SendPacket(poolPacket);
 			CPacket::Free(poolPacket);
-
-			// ChatServer UPDATE MSG 풀 사용량
-			CPacket* jobPacket = CPacket::Alloc();
-			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_UPDATEMSG_POOL, (int)iUpdateCnt, iTime, jobPacket);
-			lanClient.SendPacket(jobPacket);
-			CPacket::Free(jobPacket);
 		}
 	}
 
 	return true;
 }
-
-//// Packet Type에 맞는 Handler 호출
-//bool ChatServer::PacketProc(uint64_t sessionID, CPacket* packet)
-//{
-//	WORD type;
-//	*packet >> type;
-//
-//	switch (type)
-//	{
-//	case en_PACKET_CS_CHAT_REQ_LOGIN:
-//	{
-//		netPacketProc_Login(sessionID, packet);			// 로그인 요청
-//	}
-//		break;
-//	case en_PACKET_CS_CHAT_REQ_SECTOR_MOVE:
-//	{
-//		netPacketProc_SectorMove(sessionID, packet);	// 섹터 이동 요청
-//	}
-//		break;
-//	case en_PACKET_CS_CHAT_REQ_MESSAGE:
-//	{
-//		netPacketProc_Chatting(sessionID, packet);		// 채팅 보내기
-//	}
-//		break;
-//	case en_PACKET_CS_CHAT_REQ_HEARTBEAT:
-//	{
-//		netPacketProc_HeartBeat(sessionID, packet);		// 하트비트
-//	}
-//		break;
-//
-//	default:
-//		// 잘못된 패킷
-//		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Packet Type Error > %d", type);
-//		DisconnectSession(sessionID);
-//		break;
-//	}
-//
-//	return true;
-//}
 
 bool ChatServer::OnConnectionRequest(const wchar_t* IP, unsigned short PORT)
 {
@@ -558,8 +493,12 @@ void ChatServer::netPacketProc_Login(Player* player, CPacket* packet)
 	// 로그인 응답 패킷 Setting
 	mpResLogin(resLoginPacket, status, _accountNo);
 
+	PRO_BEGIN(L"Login_SendPacket");
+
 	// 로그인 응답 패킷 전송
 	SendPacket(sessionID, resLoginPacket);
+
+	PRO_END(L"Login_SendPacket");
 
 	CPacket::Free(resLoginPacket);						// 응답 패킷 반환
 }
@@ -751,6 +690,8 @@ void ChatServer::netPacketProc_Chatting(Player* player, CPacket* packet)
 	for (int i = 0; i < sectorAround.iCount; i++)
 		AcquireSRWLockShared(&m_Sector[sectorAround.Around[i].y][sectorAround.Around[i].x].sectorLock);
 
+	PRO_BEGIN(L"Chat_SendPacket");
+
 	// 주변 섹터에 존재하는 Player들에게 채팅 응답 패킷 전송
 	for (int i = 0; i < sectorAround.iCount; i++)
 	{
@@ -765,6 +706,8 @@ void ChatServer::netPacketProc_Chatting(Player* player, CPacket* packet)
 			SendPacket(otherPlayer->sessionID, resPacket);
 		}
 	}
+
+	PRO_END(L"Chat_SendPacket");
 
 	// 주변 sector unlock
 	for (int i = 0; i < sectorAround.iCount; i++)

@@ -30,7 +30,7 @@ CProfileThread::CProfileThread()
 CProfile::CProfile()
 {
 	QueryPerformanceFrequency(&lFreqency);
-	fMicroFreqeuncy = 1000;
+	fMicroFreqeuncy = 1000000;
 
 	tlsIndex = TlsAlloc();
 

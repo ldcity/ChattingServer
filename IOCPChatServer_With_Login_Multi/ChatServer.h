@@ -11,15 +11,6 @@ private:
 	//--------------------------------------------------------------------------------------
 	// Job Info
 	//--------------------------------------------------------------------------------------
-
-	// Redis Job 구조체
-	struct RedisJob
-	{
-		uint64_t sessionID;				// Session 고유 ID
-		INT64 accountNo;
-		std::string sessionKey;
-	};
-
 public:
 	ChatServer();
 	~ChatServer();
@@ -62,7 +53,7 @@ public:
 	bool CheckPlayer(uint64_t sessionID, INT64 accountNo)
 	{
 		// accountNo 중복체크
-		AcquireSRWLockShared(&accountNoMapLock);
+		AcquireSRWLockExclusive(&accountNoMapLock);
 		auto accountIter = m_accountNo.find(accountNo);
 		if (accountIter != m_accountNo.end())
 		{
@@ -70,7 +61,7 @@ public:
 
 			if (dupPlayer == nullptr)
 			{
-				ReleaseSRWLockShared(&accountNoMapLock);
+				ReleaseSRWLockExclusive(&accountNoMapLock);
 				return false;
 			}
 
@@ -78,31 +69,24 @@ public:
 		}
 
 		m_accountNo.insert({ accountNo, sessionID });
-		ReleaseSRWLockShared(&accountNoMapLock);
+		ReleaseSRWLockExclusive(&accountNoMapLock);
 
 		return true;
 	}
-
-	bool Authentication(Player* player);		// 동기 get 인증 요청										
-
 	//--------------------------------------------------------------------------------------
 	// Packet Proc
 	//--------------------------------------------------------------------------------------
-	bool PacketProc(uint64_t sessionID, CPacket* packet);					// Packet Handler
-	void netPacketProc_Login(uint64_t sessionID, CPacket* packet);				// 로그인 요청
-	void netPacketProc_ResLoginRedis(uint64_t sessionID, CPacket* packet);	// 로그인 응답
-	void netPacketProc_SectorMove(uint64_t sessionID, CPacket* packet);			// 섹터 이동 요청
-	void netPacketProc_Chatting(uint64_t sessionID, CPacket* packet);			// 채팅 보내기
-	void netPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet);			// 하트비트
+	bool PacketProc(uint64_t sessionID, CPacket* packet);						// Packet Handler
+	void NetPacketProc_Login(uint64_t sessionID, CPacket* packet);				// 로그인 요청
+	void NetPacketProc_SectorMove(uint64_t sessionID, CPacket* packet);			// 섹터 이동 요청
+	void NetPacketProc_Chatting(uint64_t sessionID, CPacket* packet);			// 채팅 보내기
+	void NetPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet);			// 하트비트
 
 private:
 	Log* chatLog;
 
 	int m_userMAXCnt;														// 최대 player 수
 	int m_timeout;															// 타임아웃 시간
-
-	HANDLE m_redisJobHandle;
-	HANDLE m_redisJobEvent;
 
 	HANDLE m_moniteringThread;							// Monitering Thread
 
@@ -111,27 +95,16 @@ private:
 
 	TLSObjectPool<Player> playerPool = TLSObjectPool<Player>(200);
 
-	TLSObjectPool<RedisJob> redisJobPool = TLSObjectPool<RedisJob>(0);
-
-	LockFreeQueue<RedisJob*> redisJobQ = LockFreeQueue<RedisJob*>(1000);
-
 	std::unordered_map<uint64_t, Player*> m_mapPlayer;							// 전체 Player 객체
 	Sector m_Sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];						// 섹터
 
-	// 중복 account 확인을 위해 중복을 허용하는 multimap으로 사용
-	// -> 이렇게 하지 않으면 중복 account 인걸 확인하여 이전 세션을 disconnect 한 후,
-	// m_accountNo에 새롭게 할당된 player의 accountNo(같은 번호)를 insert 하려고 해도
-	// onLeave에서 해당 accountNo를 제거하기 직전이면 insert되지 않음
-	// 잠깐의 시간동안은 중복을 허용해야 함
 	std::unordered_map<int64_t, uint64_t> m_accountNo;
 
 	SRWLOCK playerMapLock;
 	SRWLOCK accountNoMapLock;
 
-	friend unsigned __stdcall RedisJobWorkerThread(PVOID param);			// Redis Job 일 처리 스레드
 	friend unsigned __stdcall MoniteringThread(void* param);
 
-	bool RedisJobWorkerThread_serv();
 	bool MoniterThread_serv();
 
 	// 모니터링 관련 변수들
@@ -150,14 +123,10 @@ private:
 	__int64 m_deletePlayerCnt;
 	__int64 m_deletePlayerTPS;
 
-	__int64 m_updateTotal;
 	__int64 m_updateTPS;
 
-	__int64 m_redisGetCnt;
-	__int64 m_redisGetTPS;
-
 	__int64 m_redisJobThreadUpdateTPS;
-	__int64 m_redisJobEnqueueTPS;
+	__int64 m_loginResJobUpdateTPS;
 
 	bool startFlag;
 
@@ -170,6 +139,12 @@ private:
 
 	CRedis* redis;
 
+	static DWORD					_RedisTlsIdx;
+
+	LockFreeStack<CRedis*> tlsRedisObjects = LockFreeStack<CRedis*>(5);		// tls db 객체를 정리하기 위해 필요 
+
+	wchar_t redisIP[20];
+	int redisPort;
 };
 
 

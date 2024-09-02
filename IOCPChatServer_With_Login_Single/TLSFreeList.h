@@ -20,7 +20,7 @@ TLSIndex에 버킷 포인터 확인
 
 #include "LockFreeStack.h"
 
-#define BUCKETMAX				100			// 버킷 개수 (pTop)
+#define BUCKETMAX				20			// 버킷 개수 (pTop)
 #define NODEMAX					10000		// 버킷 당 들어있는 노드 개수
 
 struct Node;
@@ -97,13 +97,13 @@ class TLSObjectPool
 			// true면 실제로 사용자가 Alloc함수 호출할 때마다 생성자 호출해줘야 하므로 지금은 X
 		/*	if (m_bPlacementNew)
 			{*/
-				for (int i = 0; i < maxCount; i++)
-				{
-					Node* node = (Node*)_aligned_malloc(sizeof(Node), alignof(Node));
+			for (int i = 0; i < maxCount; i++)
+			{
+				Node* node = (Node*)_aligned_malloc(sizeof(Node), alignof(Node));
 
-					node->next = pTop;
-					pTop = node;
-				}
+				node->next = pTop;
+				pTop = node;
+			}
 			/*}
 			else
 			{
@@ -152,6 +152,7 @@ class TLSObjectPool
 				}
 			}
 		}
+
 		inline Node* GetTop() { return pTop; }
 	};
 
@@ -167,8 +168,7 @@ private:
 	alignas(64) __int64 objectFreeCount;				// 사용자가 반환한 노드 개수
 	alignas(64) __int64 objectUseCount;					// 현재 사용하고 있는 노드 개수
 	alignas(64) __int64 m_iCapacity;					// TLS 풀 내부 전체 용량
-	
-	DWORD tlsIndex;										// tls Index
+	alignas(64) DWORD tlsIndex;							// tls Index
 
 	int defaultNodeCount;								// 처음 지정한 노드 개수
 	int defaultBucketCount;								// 처음 지정한 버킷 개수
@@ -325,9 +325,9 @@ public:
 				{
 					// rootPool에서 가져온 노드를 버킷에 할당
 					//bucket->Setting(pTop, defaultNodeCount);
-						bucket->pTop = pTop;
-						bucket->size = defaultNodeCount;
-						//size = iNodeCount;
+					bucket->pTop = pTop;
+					bucket->size = defaultNodeCount;
+					//size = iNodeCount;
 				}
 				// rootPool에도 없을 경우
 				else

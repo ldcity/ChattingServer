@@ -244,6 +244,8 @@ bool ChatServer::MoniterThread_serv()
 			wprintf(L"[Accept               ] Total    : %10I64d   TPS : %10I64d\n", acceptCount, InterlockedExchange64(&acceptTPS, 0));
 			wprintf(L"[Release              ] Total    : %10I64d   TPS : %10I64d\n", releaseCount, InterlockedExchange64(&releaseTPS, 0));
 			wprintf(L"[Recv Call            ] Total    : %10I64d   TPS : %10I64d\n", recvCallCount, InterlockedExchange64(&recvCallTPS, 0));
+			wprintf(L"[PQCS                 ] Total    : %10I64d   TPS : %10I64d\n", pqcsCallTotal, InterlockedExchange64(&pqcsCallTPS, 0));
+			wprintf(L"[Send Packet Func     ] Total    : %10I64d   TPS : %10I64d\n", sendpacketTotal, InterlockedExchange64(&sendpacketTPS, 0));
 			wprintf(L"[Send Call            ] Total    : %10I64d   TPS : %10I64d\n", sendCallCount, InterlockedExchange64(&sendCallTPS, 0));
 			wprintf(L"[Recv Bytes           ] Total    : %10I64d   TPS : %10I64d\n", recvBytes, InterlockedExchange64(&recvBytesTPS, 0));
 			wprintf(L"[Send Bytes           ] Total    : %10I64d   TPS : %10I64d\n", sendBytes, InterlockedExchange64(&sendBytesTPS, 0));
@@ -395,6 +397,7 @@ bool ChatServer::PacketProc(uint64_t sessionID, CPacket* packet)
 	case en_PACKET_CS_CHAT_REQ_HEARTBEAT:
 		netPacketProc_HeartBeat(sessionID, packet);		// 하트비트
 		break;
+
 	default:
 		// 잘못된 패킷
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Packet Type Error > %d", type);
@@ -527,31 +530,33 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 	player->recvLastTime = timeGetTime();
 
 	m_mapPlayer.erase(player->sessionID);								// 전체 Player 관리 map에서 해당 player 삭제
-	m_accountNo.erase(player->accountNo);
+	//m_accountNo.erase(player->accountNo);
 
-	//auto accountIter = m_accountNo.equal_range(player->accountNo);		// 중복 계정이 있을 경우, 단일 iterator가 나오지 않음
+	InterlockedIncrement64(&m_deletePlayerCnt);
 
-	//for (; accountIter.first != accountIter.second;)
-	//{
-	//	// 이 중복건에 대해서는 (acocuntNo는 같으나 sessionID가 다름)
-	//	if (player->sessionID != accountIter.first->second)
-	//	{
-	//		chatLog->logger(dfLOG_LEVEL_DEBUG, __LINE__, L"DeletePlayer # duplicated > prevID : %016llx\tcurID : %016llx\tprevAccountNo : %IId\tcurAccountNo : %IId",
-	//			accountIter.first->second, player->sessionID, accountIter.first->first, player->accountNo);
-	//		++accountIter.first;
-	//	}
-	//	else
-	//	{
-	//		// 중복 건에서 이전 삭제해야할 계정을 삭제
-	//		accountIter.first = m_accountNo.erase(accountIter.first);
+	auto accountIter = m_accountNo.equal_range(player->accountNo);		// 중복 계정이 있을 경우, 단일 iterator가 나오지 않음
 
-	//		InterlockedDecrement64(&m_loginPlayerCnt);
-	//		InterlockedIncrement64(&m_deletePlayerCnt);
-	//		InterlockedIncrement64(&m_deletePlayerTPS);
+	for (; accountIter.first != accountIter.second;)
+	{
+		// 이 중복건에 대해서는 (acocuntNo는 같으나 sessionID가 다름)
+		if (player->sessionID != accountIter.first->second)
+		{
+			chatLog->logger(dfLOG_LEVEL_DEBUG, __LINE__, L"DeletePlayer # duplicated > prevID : %016llx\tcurID : %016llx\tprevAccountNo : %IId\tcurAccountNo : %IId",
+				accountIter.first->second, player->sessionID, accountIter.first->first, player->accountNo);
+			++accountIter.first;
+		}
+		else
+		{
+			// 중복 건에서 이전 삭제해야할 계정을 삭제
+			accountIter.first = m_accountNo.erase(accountIter.first);
 
-	//		break;
-	//	}
-	//}
+			InterlockedDecrement64(&m_loginPlayerCnt);
+			InterlockedIncrement64(&m_deletePlayerCnt);
+			InterlockedIncrement64(&m_deletePlayerTPS);
+
+			break;
+		}
+	}
 
 	playerPool.Free(player);		// PlayerPool에 player 반환
 
@@ -577,6 +582,9 @@ void ChatServer::netPacketProc_Login(uint64_t sessionID, CPacket* packet)
 		return;
 	}
 
+	InterlockedIncrement64(&m_loginPacketTPS);
+	InterlockedIncrement64(&m_loginPlayerCnt);
+
 	INT64 _accountNo = 0;
 	BYTE status = true;
 
@@ -585,6 +593,8 @@ void ChatServer::netPacketProc_Login(uint64_t sessionID, CPacket* packet)
 
 	// player 찾기
 	Player* player = FindPlayer(sessionID);
+
+	// error -> 존재하지 않는 세션에 접근하려함
 	if (player == nullptr)
 	{
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Login # %016llx Player Not Found!", sessionID);
@@ -592,39 +602,34 @@ void ChatServer::netPacketProc_Login(uint64_t sessionID, CPacket* packet)
 	}
 	else
 	{
-		// Player accountNo 중복 체크 (중복 로그인 확인)
-		if (!CheckPlayer(player, _accountNo))
-		{
-			m_accountNo.erase(_accountNo);
-			DisconnectSession(sessionID);
-			return;
-		}
+		CheckPlayer(player, _accountNo);
 
-		// 계정 관리 map에 accountNo insert
-		//m_accountNo.insert({ _accountNo, sessionID });			
-
-		// 계정 관리 set에 accountNo insert
-		m_accountNo.insert({ _accountNo });
+		m_accountNo.insert({ _accountNo, sessionID });
 
 		player->recvLastTime = timeGetTime();
 		player->accountNo = _accountNo;
-
-		// 패킷 내에 나머지 데이터들을 모두 역직렬화해서 얻어옴
 		packet->GetData((char*)player->ID, ID_MAX_LEN * sizeof(wchar_t));
 		packet->GetData((char*)player->nickname, NICKNAME_MAX_LEN * sizeof(wchar_t));
+
+		// Login Server 개발 시, 로직 변경 (인증 절차)
 		packet->GetData((char*)player->sessionKey, MSG_MAX_LEN);
 
 		InterlockedIncrement64(&m_loginPacketTPS);
 		InterlockedIncrement64(&m_loginPlayerCnt);
 	}
 
+	
 	CPacket* resLoginPacket = CPacket::Alloc();			// 응답 패킷 생성
 
 	// 로그인 응답 패킷 Setting
 	mpResLogin(resLoginPacket, status, _accountNo);
 
+	PRO_BEGIN(L"Login_SendPacket");
+
 	// 로그인 응답 패킷 전송
 	SendPacket(sessionID, resLoginPacket);
+
+	PRO_END(L"Login_SendPacket");
 
 	CPacket::Free(resLoginPacket);						// 응답 패킷 반환
 }
@@ -714,9 +719,13 @@ void ChatServer::netPacketProc_SectorMove(uint64_t sessionID, CPacket* packet)
 
 	mpResSectorMove(resPacket, player->accountNo, player->sectorX, player->sectorY);
 
+	PRO_BEGIN(L"Move_SendPacket");
+
 	// 섹터 이동 응답 패킷 전송
 	SendPacket(sessionID, resPacket);
 
+	PRO_END(L"Move_SendPacket");
+	
 	CPacket::Free(resPacket);						// 응답 패킷 반환
 }
 
@@ -790,6 +799,8 @@ void ChatServer::netPacketProc_Chatting(uint64_t sessionID, CPacket* packet)
 	st_SECTOR_AROUND sectorAround;
 	GetSectorAround(player->sectorX, player->sectorY, &sectorAround);
 
+	PRO_BEGIN(L"Chat_SendPacket");
+
 	// 주변 섹터에 존재하는 Player들에게 채팅 응답 패킷 전송
 	for (int i = 0; i < sectorAround.iCount; i++)
 	{
@@ -804,6 +815,8 @@ void ChatServer::netPacketProc_Chatting(uint64_t sessionID, CPacket* packet)
 			SendPacket(otherPlayer->sessionID, resPacket);
 		}
 	}
+
+	PRO_END(L"Chat_SendPacket");
 
 	CPacket::Free(resPacket);					// 응답 패킷 반환
 }

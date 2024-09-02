@@ -101,6 +101,8 @@ private:
 
 	 void ReleasePQCS(stSESSION* pSession)
 	{
+		 // InterlockedIncrement64(&pSession->pqcsCallTotal);
+		// InterlockedIncrement64(&pSession->pqcsCallTPS);
 		PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::RELEASE);
 	}
 
@@ -174,7 +176,7 @@ protected:
 	__int64 recvMsgCount;							// Total Recv Packet Count
 	__int64 sendMsgCount;							// Total Send Packet Count
 	__int64 recvCallTPS;							// Recv Call TPS
-	__int64 sendCallTPS;							// Send Call TPS
+	__int64 sendCallTPS;							// Send Call TPS (sendpost È½¼ö)
 	__int64 recvCallCount;							// Total Recv Call Count
 	__int64 sendCallCount;							// Total Send Call Count
 	__int64 recvPendingTPS;							// Recv Pending TPS
@@ -190,10 +192,6 @@ protected:
 	__int64 pqcsCallTPS;							// pqcs call TPS
 	__int64 sendpacketTotal;
 	__int64 sendpacketTPS;
-	__int64 eqTotal;
-	__int64 eqTPS;
-	__int64 dqTotal;
-	__int64 dqTPS;
 
 	bool startMonitering;
 };

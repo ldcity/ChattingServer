@@ -48,8 +48,30 @@ public:
 	// player 삭제
 	bool DeletePlayer(uint64_t sessionID);									
 	
+	// player 중복 체크
+	inline bool CheckPlayer(Player* player, INT64 accountNo)
+	{
+		// accountNo 중복체크
+		auto accountIter = m_accountNo.find(accountNo);
+		if (accountIter != m_accountNo.end())
+		{
+			Player* dupPlayer = FindPlayer(accountIter->second);
+
+			if (dupPlayer == nullptr)
+				return false;
+
+			m_accountNo.erase(accountIter);
+
+			DisconnectSession(dupPlayer->sessionID);
+
+			return true;
+		}
+
+		return true;
+	}
+	
 	//// player 중복 체크
-	//inline bool CheckPlayer(Player* player, INT64 accountNo)
+	//bool CheckPlayer(uint64_t sessionID, INT64 accountNo)
 	//{
 	//	// accountNo 중복체크
 	//	auto accountIter = m_accountNo.find(accountNo);
@@ -58,28 +80,17 @@ public:
 	//		Player* dupPlayer = FindPlayer(accountIter->second);
 
 	//		if (dupPlayer == nullptr)
+	//		{
 	//			return false;
-
-	//		m_accountNo.erase(accountIter);
+	//		}
 
 	//		DisconnectSession(dupPlayer->sessionID);
-
-	//		return true;
 	//	}
+
+	//	m_accountNo.insert({ accountNo, sessionID });
 
 	//	return true;
 	//}
-
-		// player 중복 체크
-	inline bool CheckPlayer(Player* player, INT64 accountNo)
-	{
-		// accountNo 중복체크
-		auto accountIter = m_accountNo.find(accountNo);
-		if (accountIter != m_accountNo.end())
-			return false;
-		
-		return true;
-	}
 
 
 	//--------------------------------------------------------------------------------------
@@ -131,20 +142,15 @@ private:
 	unordered_map<uint64_t, Player*> m_mapPlayer;							// 전체 Player 객체
 	unordered_set<Player*> m_Sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];		// 각 섹터에 존재하는 Player 객체
 	
-	// 중복 account 확인을 위해 중복을 허용하는 multimap으로 사용
-	// -> 이렇게 하지 않으면 중복 account 인걸 확인하여 이전 세션을 disconnect 한 후,
-	// m_accountNo에 새롭게 할당된 player의 accountNo(같은 번호)를 insert 하려고 해도
-	// onLeave에서 해당 accountNo를 제거하기 직전이면 insert되지 않음
-	// 잠깐의 시간동안은 중복을 허용해야 함
-	//unordered_multimap<int64_t, uint64_t> m_accountNo;
-	unordered_set<int64_t> m_accountNo;
+	unordered_multimap<int64_t, uint64_t> m_accountNo;
+	//std::unordered_map<int64_t, uint64_t> m_accountNo;
 
 private:
-		PerformanceMonitor performMoniter;			// 성능 모니터링 정보를 얻어옴
-		MonitoringLanClient lanClient;				// 채팅 서버가 모니터링 서버에 접속하여 모니터링 정보 전송하기 위해 필요
+	PerformanceMonitor performMoniter;			// 성능 모니터링 정보를 얻어옴
+	MonitoringLanClient lanClient;				// 채팅 서버가 모니터링 서버에 접속하여 모니터링 정보 전송하기 위해 필요
 
-		wstring m_tempIp;
-		string m_ip;
+	wstring m_tempIp;
+	string m_ip;
 
 	friend unsigned __stdcall JobWorkerThread(PVOID param);					// Job 일 처리 스레드
 	friend unsigned __stdcall MoniteringThread(void* param);

@@ -375,26 +375,37 @@ bool NetServer::mWorkerThread_serv()
 			break;	
 		}
 
-		// SendPost 작업이 PQCS로 들어왔을 경우 
-		if (cbTransferred == 0 && (unsigned char)pOverlapped == PQCSTYPE::SENDPOST)
-		{
-			// WSASend 1회 제한을 하기 위한 sendFlag를 다시 송신 가능 상태로 변경시킴
-			InterlockedExchange8((char*)&pSession->sendFlag, false);
+		//// SendPost 작업이 PQCS로 들어왔을 경우 
+		//if (cbTransferred == 0 && (unsigned char)pOverlapped == PQCSTYPE::SENDPOST)
+		//{
+		//	// WSASend 1회 제한을 하기 위한 sendFlag를 다시 송신 가능 상태로 변경시킴
+		//	InterlockedExchange8((char*)&pSession->sendFlag, false);
 
-			// 다른 IOCP worker thread에 의해서 dequeue되어 sendQ가 비어버리면 SendPost 함수에 진입할 필요가 없음
-			if (pSession->sendQ.GetSize() > 0)
-				SendPost(pSession);
-		}
-		// Release 작업이 PQCS로 들어왔을 경우 
-		else if (cbTransferred == 0 && (unsigned char)pOverlapped == PQCSTYPE::RELEASE)
-		{
-			// ioRefCount가 0인 경우에 PQCS를 호출한 것이기 때문에 이 시점에 ioRefCount는 0임
-			// -> continue로 넘겨야 하단에 ioRefCount를 감소시키는 로직 skip 가능
-			ReleaseSession(pSession);
-			continue;
-		}
+		//	// 다른 IOCP worker thread에 의해서 dequeue되어 sendQ가 비어버리면 SendPost 함수에 진입할 필요가 없음
+		//	if (pSession->sendQ.GetSize() > 0)
+		//		SendPost(pSession);
+		//}
+		//// Release 작업이 PQCS로 들어왔을 경우 
+		//else if (cbTransferred == 0 && (unsigned char)pOverlapped == PQCSTYPE::RELEASE)
+		//{
+		//	// ioRefCount가 0인 경우에 PQCS를 호출한 것이기 때문에 이 시점에 ioRefCount는 0임
+		//	// -> continue로 넘겨야 하단에 ioRefCount를 감소시키는 로직 skip 가능
+		//	ReleaseSession(pSession);
+		//	continue;
+		//}
+		//// Recv Packet Handler
+		//else if (pOverlapped == &pSession->m_stRecvOverlapped && cbTransferred > 0)
+		//	completionOK = RecvProc(pSession, cbTransferred);
+		//// Send Packet Handler
+		//else if (pOverlapped == &pSession->m_stSendOverlapped && cbTransferred > 0)
+		//	completionOK = SendProc(pSession, cbTransferred);
+
+		//// I/O 완료 통지가 더이상 없다면 세션 해제 작업
+		//if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+		//	ReleaseSession(pSession);
+
 		// Recv Packet Handler
-		else if (pOverlapped == &pSession->m_stRecvOverlapped && cbTransferred > 0)
+		if (pOverlapped == &pSession->m_stRecvOverlapped && cbTransferred > 0)
 			completionOK = RecvProc(pSession, cbTransferred);
 		// Send Packet Handler
 		else if (pOverlapped == &pSession->m_stSendOverlapped && cbTransferred > 0)
@@ -583,13 +594,15 @@ bool NetServer::SendProc(stSESSION* pSession, long cbTransferred)
 		// sendFlag가 false인걸 한번 확인한 다음에 인터락 비교 (어느정도 이 사이에 true인 경우가 걸러져서 인터락 call 줄임)
 		if (pSession->sendFlag == false)
 		{
-			// 미전송 상태에서 전송 상태로 변겅
-			if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
-			{
-				// SendPost 작업을 하기 전까지 해당 Session이 살아 있어야 하므로 참조 카운트 증가
-				InterlockedIncrement64(&pSession->ioRefCount);
-				PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
-			}
+			//// 미전송 상태에서 전송 상태로 변겅
+			//if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
+			//{
+			//	// SendPost 작업을 하기 전까지 해당 Session이 살아 있어야 하므로 참조 카운트 증가
+			//	InterlockedIncrement64(&pSession->ioRefCount);
+			//	PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
+			//}
+
+			SendPost(pSession);
 		}
 	}
 
@@ -789,7 +802,8 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 	{
 		// 외부 컨텐츠 로직의 성능 개선을 위해 Release 함수 처리도 PQCS 함수를 호출하여 비동기적으로 진행
 		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
-			ReleasePQCS(pSession);
+			//ReleasePQCS(pSession);
+			ReleaseSession(pSession);
 
 		return false;
 	}
@@ -798,10 +812,14 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 	if (pSession->isDisconnected)
 	{
 		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
-			ReleasePQCS(pSession);
+			//ReleasePQCS(pSession);
+			ReleaseSession(pSession);
 
 		return false;
 	}
+
+	InterlockedIncrement64(&sendpacketTotal);
+	InterlockedIncrement64(&sendpacketTPS);
 
 	// 헤더 셋팅 & 인코딩
 	packet->Encoding();
@@ -817,17 +835,22 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 	// -> 그렇지 않을 경우, sendpacket 오는대로 계속 PQCS 호출하게 되어 성능이 생각한대로 안나올 수 있음 
 	if (pSession->sendFlag == false)
 	{
-		if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
-		{
-			InterlockedIncrement64(&pSession->ioRefCount);
-			PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
-		}
+		//if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
+		//{
+			// InterlockedIncrement64(&pSession->pqcsCallTotal);
+			// InterlockedIncrement64(&pSession->pqcsCallTPS);
+			//InterlockedIncrement64(&pSession->ioRefCount);
+			//PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
+		//}
+
+		SendPost(pSession);
 	}
 
 	// sendPacket 함수에서 증가시킨 세션 참조 카운트 감소
 	if (0 == InterlockedDecrement64(&pSession->ioRefCount))
 	{
-		ReleasePQCS(pSession);
+		//ReleasePQCS(pSession);
+		ReleaseSession(pSession);
 		return false;
 	}
 }
@@ -909,7 +932,8 @@ bool NetServer::DisconnectSession(uint64_t sessionID)
 	if (sessionID != pSession->sessionID)
 	{
 		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
-			ReleasePQCS(pSession);
+			//ReleasePQCS(pSession);
+			ReleaseSession(pSession);
 
 		return false;
 	}
@@ -918,7 +942,8 @@ bool NetServer::DisconnectSession(uint64_t sessionID)
 	if (pSession->isDisconnected)
 	{
 		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
-			ReleasePQCS(pSession);
+			//ReleasePQCS(pSession);
+			ReleaseSession(pSession);
 
 		return false;
 	}
@@ -936,9 +961,11 @@ bool NetServer::DisconnectSession(uint64_t sessionID)
 	// Disconnect 함수에서 증가시킨 세션 참조 카운트 감소
 	if (0 == InterlockedDecrement64(&pSession->ioRefCount))
 	{
-		ReleasePQCS(pSession);
+		//ReleasePQCS(pSession);
+		ReleaseSession(pSession);
 		return false;
 	}
+
 	return true;
 }
 
