@@ -1,6 +1,5 @@
 #include "PCH.h"
 #include "ChatServer.h"
-#include <conio.h>
 
 // Worker Thread Call
 unsigned __stdcall MoniteringThread(void* param)
@@ -22,10 +21,10 @@ ChatServer::~ChatServer()
 	ChatServerStop();
 }
 
-// √§∆√º≠πˆ Ω√¿€
+// Ï±ÑÌåÖÏÑúÎ≤Ñ ÏãúÏûë
 bool ChatServer::ChatServerStart()
 {
-	// √§∆√º≠πˆ Ω√¿€ Ω√∞£ ±‚∑œ
+	// Ï±ÑÌåÖÏÑúÎ≤Ñ ÏãúÏûë ÏãúÍ∞Ñ Í∏∞Î°ù
 	SYSTEMTIME stNowTime;
 	GetLocalTime(&stNowTime);
 	wsprintfW(startTime, L"%d%02d%02d_%02d.%02d.%02d",
@@ -36,7 +35,7 @@ bool ChatServer::ChatServerStart()
 	InitializeSRWLock(&playerMapLock);
 	InitializeSRWLock(&accountNoMapLock);
 
-	// chatting server º≥¡§∆ƒ¿œ¿ª Parsing«œø© ¿–æÓø»
+	// chatting server ÏÑ§Ï†ïÌååÏùºÏùÑ ParsingÌïòÏó¨ ÏùΩÏñ¥Ïò¥
 	TextParser chatServerInfoTxt;
 	const wchar_t* txtName = L"ChatServer.txt";
 	chatServerInfoTxt.LoadFile(txtName);
@@ -63,7 +62,10 @@ bool ChatServer::ChatServerStart()
 
 	int nagleOff;
 	chatServerInfoTxt.GetValue(L"SERVER.NAGLE_OFF", &nagleOff);
-
+	
+	int zeroCopyOff;
+	chatServerInfoTxt.GetValue(L"SERVER.ZEROCOPY_OFF", &zeroCopyOff);
+	
 	int sessionMAXCnt;
 	chatServerInfoTxt.GetValue(L"SERVER.SESSION_MAX", &sessionMAXCnt);
 
@@ -81,7 +83,7 @@ bool ChatServer::ChatServerStart()
 	lanClient.MonitoringLanClientStart();
 
 	// Network Logic Start
-	bool ret = this->Start(ip, port, workerThread, runningThread, nagleOff, sessionMAXCnt, packet_code, packet_key);
+	bool ret = this->Start(ip, port, workerThread, runningThread, nagleOff, zeroCopyOff, sessionMAXCnt, packet_code, packet_key, m_timeout);
 
 	if (!ret)
 	{
@@ -145,7 +147,7 @@ bool ChatServer::ChatServerStop()
 	CloseHandle(m_moniterEvent);
 	CloseHandle(m_runEvent);
 
-	// NetServer ¡æ∑·
+	// NetServer Ï¢ÖÎ£å
 	this->Stop();
 
 	return true;
@@ -160,7 +162,7 @@ bool ChatServer::MoniterThread_serv()
 
 	while (true)
 	{
-		// 1√ ∏∂¥Ÿ ∏¥œ≈Õ∏µ -> ≈∏¿”æ∆øÙ ∞«µµ √≥∏Æ
+		// 1Ï¥àÎßàÎã§ Î™®ÎãàÌÑ∞ÎßÅ -> ÌÉÄÏûÑÏïÑÏõÉ Í±¥ÎèÑ Ï≤òÎ¶¨
 		DWORD ret = WaitForSingleObject(m_moniterEvent, 1000);
 
 		if (ret == WAIT_TIMEOUT)
@@ -168,7 +170,7 @@ bool ChatServer::MoniterThread_serv()
 			__int64 chatReq = InterlockedExchange64(&m_chattingReqTPS, 0);
 			__int64 chatRes = InterlockedExchange64(&m_chattingResTPS, 0);
 
-			// ∏¥œ≈Õ∏µ º≠πˆ ¿¸º€øÎ µ•¿Ã≈Õ
+			// Î™®ÎãàÌÑ∞ÎßÅ ÏÑúÎ≤Ñ Ï†ÑÏÜ°Ïö© Îç∞Ïù¥ÌÑ∞
 			__int64 iSessionCnt = sessionCnt;
 			__int64 iLoginPlayerCnt = m_loginPlayerCnt;
 
@@ -207,47 +209,47 @@ bool ChatServer::MoniterThread_serv()
 			wprintf(L"[Delete               ] Total    : %10I64d   TPS        : %10I64d\n", m_deletePlayerCnt, InterlockedExchange64(&m_deletePlayerTPS, 0));
 			wprintf(L"==============================================================\n\n");
 
-			// ∏¥œ≈Õ∏µ º≠πˆ∑Œ µ•¿Ã≈Õ ¿¸º€
+			// Î™®ÎãàÌÑ∞ÎßÅ ÏÑúÎ≤ÑÎ°ú Îç∞Ïù¥ÌÑ∞ Ï†ÑÏÜ°
 			int iTime = (int)time(NULL);
 			BYTE serverNo = SERVERTYPE::CHAT_SERVER_TYPE;
 
-			// ChatServer Ω««‡ ø©∫Œ ON / OFF
+			// ChatServer Ïã§Ìñâ Ïó¨Î∂Ä ON / OFF
 			CPacket* onPacket = CPacket::Alloc();
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_SERVER_RUN, true, iTime, onPacket);
 			lanClient.SendPacket(onPacket);
 			CPacket::Free(onPacket);
 
-			// ChatServer CPU ªÁøÎ∑¸
+			// ChatServer CPU ÏÇ¨Ïö©Î•†
 			CPacket* cpuPacket = CPacket::Alloc();
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_SERVER_CPU, (int)performMoniter.GetProcessCpuTotal(), iTime, cpuPacket);
 			lanClient.SendPacket(cpuPacket);
 			CPacket::Free(cpuPacket);
 
-			// ChatServer ∏ﬁ∏∏Æ ªÁøÎ MByte
+			// ChatServer Î©îÎ™®Î¶¨ ÏÇ¨Ïö© MByte
 			CPacket* memoryPacket = CPacket::Alloc();
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_SERVER_MEM, (int)performMoniter.GetProcessUserMemoryByMB(), iTime, memoryPacket);
 			lanClient.SendPacket(memoryPacket);
 			CPacket::Free(memoryPacket);
 
-			// ChatServer ººº« ºˆ (ƒ¡≥ÿº« ºˆ)
+			// ChatServer ÏÑ∏ÏÖò Ïàò (Ïª®ÎÑ•ÏÖò Ïàò)
 			CPacket* sessionPacket = CPacket::Alloc();
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_SESSION, (int)iSessionCnt, iTime, sessionPacket);
 			lanClient.SendPacket(sessionPacket);
 			CPacket::Free(sessionPacket);
 
-			// ChatServer ¿Œ¡ıº∫∞¯ ªÁøÎ¿⁄ ºˆ (Ω«¡¶ ¡¢º”¿⁄)
+			// ChatServer Ïù∏Ï¶ùÏÑ±Í≥µ ÏÇ¨Ïö©Ïûê Ïàò (Ïã§Ï†ú Ï†ëÏÜçÏûê)
 			CPacket* authPacket = CPacket::Alloc();
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_PLAYER, (int)iLoginPlayerCnt, iTime, authPacket);
 			lanClient.SendPacket(authPacket);
 			CPacket::Free(authPacket);
 
-			// ChatServer UPDATE Ω∫∑πµÂ √ ¥Á √ ∏Æ »Ωºˆ
+			// ChatServer UPDATE Ïä§Î†àÎìú Ï¥àÎãπ Ï¥àÎ¶¨ ÌöüÏàò
 			CPacket* updataPacket = CPacket::Alloc();
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_UPDATE_TPS, (int)iUpdateCnt, iTime, updataPacket);
 			lanClient.SendPacket(updataPacket);
 			CPacket::Free(updataPacket);
 
-			// ChatServer ∆–≈∂«Æ ªÁøÎ∑Æ
+			// ChatServer Ìå®ÌÇ∑ÌíÄ ÏÇ¨Ïö©Îüâ
 			CPacket* poolPacket = CPacket::Alloc();
 			lanClient.mpUpdateDataToMonitorServer(serverNo, MONITOR_DATA_TYPE_CHAT_PACKET_POOL, (int)packetPoolUseCnt, iTime, poolPacket);
 			lanClient.SendPacket(poolPacket);
@@ -264,11 +266,11 @@ bool ChatServer::OnConnectionRequest(const wchar_t* IP, unsigned short PORT)
 	return true;
 }
 
-// ¡¢º” √≥∏Æ - ¿Ã ∂ß ∫Û Player ∞¥√º∏¶ πÃ∏Æ ∏∏µÈæÓ≥ˆæﬂ«‘
-// ∑Œ±◊¿Œ ¿¸ø° ø¨∞·∏∏ µ» ººº«ø° ¥Î«ÿ timeoutµµ ∆«¥‹«ÿæﬂ«œ±‚ ∂ßπÆø° («ˆ¿Á¥¬ ≈∏¿”æ∆øÙ πÃ±∏«ˆ)
+// Ï†ëÏÜç Ï≤òÎ¶¨ - Ïù¥ Îïå Îπà Player Í∞ùÏ≤¥Î•º ÎØ∏Î¶¨ ÎßåÎì§Ïñ¥ÎÜîÏïºÌï®
+// Î°úÍ∑∏Ïù∏ Ï†ÑÏóê Ïó∞Í≤∞Îßå Îêú ÏÑ∏ÏÖòÏóê ÎåÄÌï¥ timeoutÎèÑ ÌåêÎã®Ìï¥ÏïºÌïòÍ∏∞ ÎïåÎ¨∏Ïóê (ÌòÑÏû¨Îäî ÌÉÄÏûÑÏïÑÏõÉ ÎØ∏Íµ¨ÌòÑ)
 void ChatServer::OnClientJoin(uint64_t sessionID)
 {
-	// √π ººº«¿Ã ø¨∞·µ» »ƒ∫Œ≈Õ ∏¥œ≈Õ∏µ¿ª Ω√¿€«œ±‚ ¿ß«ÿ « ø‰«— flag
+	// Ï≤´ ÏÑ∏ÏÖòÏù¥ Ïó∞Í≤∞Îêú ÌõÑÎ∂ÄÌÑ∞ Î™®ÎãàÌÑ∞ÎßÅÏùÑ ÏãúÏûëÌïòÍ∏∞ ÏúÑÌï¥ ÌïÑÏöîÌïú flag
 	if (!startFlag)
 	{
 		ResumeThread(m_moniteringThread);
@@ -280,7 +282,7 @@ void ChatServer::OnClientJoin(uint64_t sessionID)
 	InterlockedIncrement64(&m_UpdateTPS);
 }
 
-// «ÿ¡¶ √≥∏Æ
+// Ìï¥Ï†ú Ï≤òÎ¶¨
 void ChatServer::OnClientLeave(uint64_t sessionID)
 {
 	DeletePlayer(sessionID);
@@ -288,7 +290,7 @@ void ChatServer::OnClientLeave(uint64_t sessionID)
 	InterlockedIncrement64(&m_UpdateTPS);
 }
 
-// ∆–≈∂ √≥∏Æ
+// Ìå®ÌÇ∑ Ï≤òÎ¶¨
 void ChatServer::OnRecv(uint64_t sessionID, CPacket* packet)
 {
 	//PacketProc(sessionID, packet);
@@ -304,30 +306,30 @@ void ChatServer::OnRecv(uint64_t sessionID, CPacket* packet)
 		{
 		case en_PACKET_CS_CHAT_REQ_LOGIN:
 		{
-			netPacketProc_Login(player, packet);			// ∑Œ±◊¿Œ ø‰√ª
+			netPacketProc_Login(player, packet);			// Î°úÍ∑∏Ïù∏ ÏöîÏ≤≠
 		}
 		break;
 
 		case en_PACKET_CS_CHAT_REQ_SECTOR_MOVE:
 		{
-			netPacketProc_SectorMove(player, packet);	// ºΩ≈Õ ¿Ãµø ø‰√ª
+			netPacketProc_SectorMove(player, packet);	// ÏÑπÌÑ∞ Ïù¥Îèô ÏöîÏ≤≠
 		}
 		break;
 
 		case en_PACKET_CS_CHAT_REQ_MESSAGE:
 		{
-			netPacketProc_Chatting(player, packet);		// √§∆√ ∫∏≥ª±‚
+			netPacketProc_Chatting(player, packet);		// Ï±ÑÌåÖ Î≥¥ÎÇ¥Í∏∞
 		}
 		break;
 
 		case en_PACKET_CS_CHAT_REQ_HEARTBEAT:
 		{
-			netPacketProc_HeartBeat(player, packet);		// «œ∆Æ∫Ò∆Æ
+			netPacketProc_HeartBeat(player, packet);		// ÌïòÌä∏ÎπÑÌä∏
 		}
 		break;
 
 		default:
-			// ¿ﬂ∏¯µ» ∆–≈∂
+			// ÏûòÎ™ªÎêú Ìå®ÌÇ∑
 			chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Packet Type Error > %d", type);
 			DisconnectSession(sessionID);
 			break;
@@ -347,13 +349,13 @@ void ChatServer::OnError(int errorCode, const wchar_t* msg)
 
 
 //--------------------------------------------------------------------------------------
-// player ∞¸∑√ «‘ºˆ
+// player Í¥ÄÎ†® Ìï®Ïàò
 //--------------------------------------------------------------------------------------
 
-// player ª˝º∫
+// player ÏÉùÏÑ±
 bool ChatServer::CreatePlayer(uint64_t sessionID)
 {
-	// PlayerPoolø°º≠ Player «“¥Á
+	// PlayerPoolÏóêÏÑú Player Ìï†Îãπ
 	Player* player = playerPool.Alloc();
 
 	if (player == nullptr)
@@ -363,20 +365,20 @@ bool ChatServer::CreatePlayer(uint64_t sessionID)
 		return false;
 	}
 
-	player->sessionID = sessionID;					// sessionID º¬∆√
-	player->accountNo = -1;							// «ˆ¿Á¥¬ ∑Œ±◊¿Œ ø‰√ª æ» ø¬ ªÛ≈¬¿Ãπ«∑Œ -1∑Œ √ ±‚»≠
+	player->sessionID = sessionID;					// sessionID ÏÖãÌåÖ
+	player->accountNo = -1;							// ÌòÑÏû¨Îäî Î°úÍ∑∏Ïù∏ ÏöîÏ≤≠ Ïïà Ïò® ÏÉÅÌÉúÏù¥ÎØÄÎ°ú -1Î°ú Ï¥àÍ∏∞Ìôî
 
-	memset(player->sessionKey, 0, MSG_MAX_LEN);		// «ˆ¿Á¥¬ ∑Œ±◊¿Œ ø‰√ª æ» ø¬ ªÛ≈¬¿Ãπ«∑Œ 0¿∏∑Œ √ ±‚»≠
-	wmemset(player->ID, 0, ID_MAX_LEN);				// «ˆ¿Á¥¬ ∑Œ±◊¿Œ ø‰√ª æ» ø¬ ªÛ≈¬¿Ãπ«∑Œ 0¿∏∑Œ √ ±‚»≠
-	wmemset(player->nickname, 0, NICKNAME_MAX_LEN);	// «ˆ¿Á¥¬ ∑Œ±◊¿Œ ø‰√ª æ» ø¬ ªÛ≈¬¿Ãπ«∑Œ 0¿∏∑Œ √ ±‚»≠
+	memset(player->sessionKey, 0, MSG_MAX_LEN);		// ÌòÑÏû¨Îäî Î°úÍ∑∏Ïù∏ ÏöîÏ≤≠ Ïïà Ïò® ÏÉÅÌÉúÏù¥ÎØÄÎ°ú 0ÏúºÎ°ú Ï¥àÍ∏∞Ìôî
+	wmemset(player->ID, 0, ID_MAX_LEN);				// ÌòÑÏû¨Îäî Î°úÍ∑∏Ïù∏ ÏöîÏ≤≠ Ïïà Ïò® ÏÉÅÌÉúÏù¥ÎØÄÎ°ú 0ÏúºÎ°ú Ï¥àÍ∏∞Ìôî
+	wmemset(player->nickname, 0, NICKNAME_MAX_LEN);	// ÌòÑÏû¨Îäî Î°úÍ∑∏Ïù∏ ÏöîÏ≤≠ Ïïà Ïò® ÏÉÅÌÉúÏù¥ÎØÄÎ°ú 0ÏúºÎ°ú Ï¥àÍ∏∞Ìôî
 
-	player->sectorX = -1;							// «ˆ¿Á¥¬ ºΩ≈Õ ¿Ãµø ø‰√ª æ» ø¬ ªÛ≈¬¿Ãπ«∑Œ -1∑Œ∑Œ √ ±‚»≠
-	player->sectorY = -1;							// «ˆ¿Á¥¬ ºΩ≈Õ ¿Ãµø ø‰√ª æ» ø¬ ªÛ≈¬¿Ãπ«∑Œ -1∑Œ∑Œ √ ±‚»≠
+	player->sectorX = -1;							// ÌòÑÏû¨Îäî ÏÑπÌÑ∞ Ïù¥Îèô ÏöîÏ≤≠ Ïïà Ïò® ÏÉÅÌÉúÏù¥ÎØÄÎ°ú -1Î°úÎ°ú Ï¥àÍ∏∞Ìôî
+	player->sectorY = -1;							// ÌòÑÏû¨Îäî ÏÑπÌÑ∞ Ïù¥Îèô ÏöîÏ≤≠ Ïïà Ïò® ÏÉÅÌÉúÏù¥ÎØÄÎ°ú -1Î°úÎ°ú Ï¥àÍ∏∞Ìôî
 
 	player->recvLastTime = timeGetTime();
 
 	AcquireSRWLockExclusive(&playerMapLock);
-	m_mapPlayer.insert({ sessionID, player });		// ¿¸√º Player∏¶ ∞¸∏Æ«œ¥¬ mapø° insert
+	m_mapPlayer.insert({ sessionID, player });		// Ï†ÑÏ≤¥ PlayerÎ•º Í¥ÄÎ¶¨ÌïòÎäî mapÏóê insert
 	ReleaseSRWLockExclusive(&playerMapLock);
 
 	InterlockedIncrement64(&m_totalPlayerCnt);
@@ -384,10 +386,10 @@ bool ChatServer::CreatePlayer(uint64_t sessionID)
 	return true;
 }
 
-// player ªË¡¶
+// player ÏÇ≠Ï†ú
 bool ChatServer::DeletePlayer(uint64_t sessionID)
 {
-	// player ∞Àªˆ
+	// player Í≤ÄÏÉâ
 	Player* player = FindPlayer(sessionID);
 	if (player == nullptr)
 	{
@@ -397,26 +399,26 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 	}
 
 
-	// ºΩ≈Õø°º≠ «ÿ¥Á player ∞¥√º ªË¡¶
-	// ºΩ≈Õ ¿Ãµøµµ «œ¡ˆ æ ¿∫ ªÛ≈¬∏È ºΩ≈Õ x,y ¡¬«•∞° ∏µŒ -1¿Ã∞Ì, ¿Ã ∂ß Player¥¬ ºΩ≈Õ ≥ªø° ¡∏¿Á«œ¡ˆ æ ¿Ω
-	// -> x,y ¡¬«• µ— ¥Ÿ -1¿Ã æ∆¥œ∏È ºΩ≈Õø°º≠ ¿Ãµø¿ª «ﬂ¥Ÿ¥¬ ¿«πÃ¿Ãπ«∑Œ ºΩ≈Õø° «√∑π¿ÃæÓ ¡∏¿Á
+	// ÏÑπÌÑ∞ÏóêÏÑú Ìï¥Îãπ player Í∞ùÏ≤¥ ÏÇ≠Ï†ú
+	// ÏÑπÌÑ∞ Ïù¥ÎèôÎèÑ ÌïòÏßÄ ÏïäÏùÄ ÏÉÅÌÉúÎ©¥ ÏÑπÌÑ∞ x,y Ï¢åÌëúÍ∞Ä Î™®Îëê -1Ïù¥Í≥†, Ïù¥ Îïå PlayerÎäî ÏÑπÌÑ∞ ÎÇ¥Ïóê Ï°¥Ïû¨ÌïòÏßÄ ÏïäÏùå
+	// -> x,y Ï¢åÌëú Îëò Îã§ -1Ïù¥ ÏïÑÎãàÎ©¥ ÏÑπÌÑ∞ÏóêÏÑú Ïù¥ÎèôÏùÑ ÌñàÎã§Îäî ÏùòÎØ∏Ïù¥ÎØÄÎ°ú ÏÑπÌÑ∞Ïóê ÌîåÎ†àÏù¥Ïñ¥ Ï°¥Ïû¨
 	if (player->sectorX != -1 && player->sectorY != -1)
 	{
 		AcquireSRWLockExclusive(&m_Sector[player->sectorY][player->sectorX].sectorLock);
-		m_Sector[player->sectorY][player->sectorX].playerSet.erase(player);					// «ÿ¥Á ºΩ≈Õø°º≠ player ªË¡¶
+		m_Sector[player->sectorY][player->sectorX].playerSet.erase(player);					// Ìï¥Îãπ ÏÑπÌÑ∞ÏóêÏÑú player ÏÇ≠Ï†ú
 		ReleaseSRWLockExclusive(&m_Sector[player->sectorY][player->sectorX].sectorLock);
 	}
 
 	AcquireSRWLockExclusive(&playerMapLock);
-	m_mapPlayer.erase(player->sessionID);								// ¿¸√º Player ∞¸∏Æ mapø°º≠ «ÿ¥Á player ªË¡¶
+	m_mapPlayer.erase(player->sessionID);								// Ï†ÑÏ≤¥ Player Í¥ÄÎ¶¨ mapÏóêÏÑú Ìï¥Îãπ player ÏÇ≠Ï†ú
 	ReleaseSRWLockExclusive(&playerMapLock);
 
 	AcquireSRWLockExclusive(&accountNoMapLock);
-	auto accountIter = m_accountNo.equal_range(player->accountNo);		// ¡ﬂ∫π ∞Ë¡§¿Ã ¿÷¿ª ∞ÊøÏ, ¥‹¿œ iterator∞° ≥™ø¿¡ˆ æ ¿Ω
+	auto accountIter = m_accountNo.equal_range(player->accountNo);		// Ï§ëÎ≥µ Í≥ÑÏ†ïÏù¥ ÏûàÏùÑ Í≤ΩÏö∞, Îã®Ïùº iteratorÍ∞Ä ÎÇòÏò§ÏßÄ ÏïäÏùå
 
 	for (; accountIter.first != accountIter.second;)
 	{
-		// ¿Ã ¡ﬂ∫π∞«ø° ¥Î«ÿº≠¥¬ (acocuntNo¥¬ ∞∞¿∏≥™ sessionID∞° ¥Ÿ∏ß)
+		// Ïù¥ Ï§ëÎ≥µÍ±¥Ïóê ÎåÄÌï¥ÏÑúÎäî (acocuntNoÎäî Í∞ôÏúºÎÇò sessionIDÍ∞Ä Îã§Î¶Ñ)
 		if (player->sessionID != accountIter.first->second)
 		{
 			chatLog->logger(dfLOG_LEVEL_DEBUG, __LINE__, L"DeletePlayer # duplicated > prevID : %016llx\tcurID : %016llx\tprevAccountNo : %IId\tcurAccountNo : %IId",
@@ -425,7 +427,7 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 		}
 		else
 		{
-			// ¡ﬂ∫π ∞«ø°º≠ ¿Ã¿¸ ªË¡¶«ÿæﬂ«“ ∞Ë¡§¿ª ªË¡¶
+			// Ï§ëÎ≥µ Í±¥ÏóêÏÑú Ïù¥Ï†Ñ ÏÇ≠Ï†úÌï¥ÏïºÌï† Í≥ÑÏ†ïÏùÑ ÏÇ≠Ï†ú
 			accountIter.first = m_accountNo.erase(accountIter.first);
 
 			InterlockedDecrement64(&m_loginPlayerCnt);
@@ -437,7 +439,7 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 	}
 	ReleaseSRWLockExclusive(&accountNoMapLock);
 
-	playerPool.Free(player);		// PlayerPoolø° player π›»Ø
+	playerPool.Free(player);		// PlayerPoolÏóê player Î∞òÌôò
 
 	InterlockedDecrement64(&m_totalPlayerCnt);
 
@@ -448,12 +450,12 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 // Packet Proc
 //--------------------------------------------------------------------------------------
 
-// ∑Œ±◊¿Œ ø‰√ª
+// Î°úÍ∑∏Ïù∏ ÏöîÏ≤≠
 void ChatServer::netPacketProc_Login(Player* player, CPacket* packet)
 {
 	uint64_t sessionID = player->sessionID;
 
-	// Packet ≈©±‚ø° ¥Î«— øπø‹ √≥∏Æ 
+	// Packet ÌÅ¨Í∏∞Ïóê ÎåÄÌïú ÏòàÏô∏ Ï≤òÎ¶¨ 
 	if (packet->GetDataSize() < sizeof(INT64) + ID_MAX_LEN * sizeof(wchar_t) + NICKNAME_MAX_LEN * sizeof(wchar_t) + MSG_MAX_LEN * sizeof(char))
 	{
 		int size = packet->GetDataSize();
@@ -466,21 +468,21 @@ void ChatServer::netPacketProc_Login(Player* player, CPacket* packet)
 	INT64 _accountNo = 0;
 	BYTE status = true;
 
-	// accountNo∏¶ ø™¡˜∑ƒ»≠«ÿº≠ æÚæÓø»
+	// accountNoÎ•º Ïó≠ÏßÅÎ†¨ÌôîÌï¥ÏÑú ÏñªÏñ¥Ïò¥
 	*packet >> _accountNo;
 
-	// Player accountNo ¡ﬂ∫π √º≈© (¡ﬂ∫π ∑Œ±◊¿Œ »Æ¿Œ)
+	// Player accountNo Ï§ëÎ≥µ Ï≤¥ÌÅ¨ (Ï§ëÎ≥µ Î°úÍ∑∏Ïù∏ ÌôïÏù∏)
 	CheckPlayer(player, _accountNo);
 
 	AcquireSRWLockExclusive(&accountNoMapLock);
-	// ∞Ë¡§ ∞¸∏Æ mapø° accountNo insert
+	// Í≥ÑÏ†ï Í¥ÄÎ¶¨ mapÏóê accountNo insert
 	m_accountNo.insert({ _accountNo, sessionID });
 	ReleaseSRWLockExclusive(&accountNoMapLock);
 
 	player->recvLastTime = timeGetTime();
 	player->accountNo = _accountNo;
 
-	// ∆–≈∂ ≥ªø° ≥™∏”¡ˆ µ•¿Ã≈ÕµÈ¿ª ∏µŒ ø™¡˜∑ƒ»≠«ÿº≠ æÚæÓø»
+	// Ìå®ÌÇ∑ ÎÇ¥Ïóê ÎÇòÎ®∏ÏßÄ Îç∞Ïù¥ÌÑ∞Îì§ÏùÑ Î™®Îëê Ïó≠ÏßÅÎ†¨ÌôîÌï¥ÏÑú ÏñªÏñ¥Ïò¥
 	packet->GetData((char*)player->ID, ID_MAX_LEN * sizeof(wchar_t));
 	packet->GetData((char*)player->nickname, NICKNAME_MAX_LEN * sizeof(wchar_t));
 	packet->GetData((char*)player->sessionKey, MSG_MAX_LEN);
@@ -488,27 +490,27 @@ void ChatServer::netPacketProc_Login(Player* player, CPacket* packet)
 	InterlockedIncrement64(&m_loginPacketTPS);
 	InterlockedIncrement64(&m_loginPlayerCnt);
 
-	CPacket* resLoginPacket = CPacket::Alloc();			// ¿¿¥‰ ∆–≈∂ ª˝º∫
+	CPacket* resLoginPacket = CPacket::Alloc();			// ÏùëÎãµ Ìå®ÌÇ∑ ÏÉùÏÑ±
 
-	// ∑Œ±◊¿Œ ¿¿¥‰ ∆–≈∂ Setting
+	// Î°úÍ∑∏Ïù∏ ÏùëÎãµ Ìå®ÌÇ∑ Setting
 	mpResLogin(resLoginPacket, status, _accountNo);
 
 	PRO_BEGIN(L"Login_SendPacket");
 
-	// ∑Œ±◊¿Œ ¿¿¥‰ ∆–≈∂ ¿¸º€
+	// Î°úÍ∑∏Ïù∏ ÏùëÎãµ Ìå®ÌÇ∑ Ï†ÑÏÜ°
 	SendPacket(sessionID, resLoginPacket);
 
 	PRO_END(L"Login_SendPacket");
 
-	CPacket::Free(resLoginPacket);						// ¿¿¥‰ ∆–≈∂ π›»Ø
+	CPacket::Free(resLoginPacket);						// ÏùëÎãµ Ìå®ÌÇ∑ Î∞òÌôò
 }
 
-// ºΩ≈Õ ¿Ãµø ø‰√ª
+// ÏÑπÌÑ∞ Ïù¥Îèô ÏöîÏ≤≠
 void ChatServer::netPacketProc_SectorMove(Player* player, CPacket* packet)
 {
 	uint64_t sessionID = player->sessionID;
 
-	// Packet ≈©±‚ø° ¥Î«— øπø‹ √≥∏Æ 
+	// Packet ÌÅ¨Í∏∞Ïóê ÎåÄÌïú ÏòàÏô∏ Ï≤òÎ¶¨ 
 	if (packet->GetDataSize() < sizeof(INT64) + sizeof(WORD) * 2)
 	{
 		int size = packet->GetDataSize();
@@ -521,10 +523,10 @@ void ChatServer::netPacketProc_SectorMove(Player* player, CPacket* packet)
 	short sectorX;
 	short sectorY;
 
-	// accountNoøÕ ºΩ≈Õ ¡¬«•∏¶ ø™¡˜∑ƒ»≠«ÿº≠ æÚæÓø»
+	// accountNoÏôÄ ÏÑπÌÑ∞ Ï¢åÌëúÎ•º Ïó≠ÏßÅÎ†¨ÌôîÌï¥ÏÑú ÏñªÏñ¥Ïò¥
 	*packet >> accountNo >> sectorX >> sectorY;
 
-	// accountNo »Æ¿Œ
+	// accountNo ÌôïÏù∏
 	if (player->accountNo != accountNo)
 	{
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Move Sector Request Packet > AccountNo Not Equal");
@@ -532,7 +534,7 @@ void ChatServer::netPacketProc_SectorMove(Player* player, CPacket* packet)
 		return;
 	}
 
-	// ºΩ≈Õ π¸¿ß »Æ¿Œ
+	// ÏÑπÌÑ∞ Î≤îÏúÑ ÌôïÏù∏
 	if (sectorX >= dfSECTOR_X_MAX || sectorX < 0 || sectorY >= dfSECTOR_Y_MAX || sectorY < 0)
 	{
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Move Sector Request Packet > Sector Bound Error");
@@ -542,51 +544,51 @@ void ChatServer::netPacketProc_SectorMove(Player* player, CPacket* packet)
 
 	player->recvLastTime = timeGetTime();
 
-	// «ÿ¥Á ºΩ≈Õø° player∞° ¿÷¥¬¡ˆ »Æ¿Œ
-	// ∏∏æ‡ «ˆ¿Á ºΩ≈Õ ¡¬«•∞° -1¿Ã æ∆¥œ∏È √≥¿Ω øÚ¡˜¿Ã¥¬ ∞‘ æ∆¥œπ«∑Œ ¿Ãµø ¿¸ø° «ˆ¿Á ºΩ≈Õø° ¿ßƒ°«ÿ ¿÷¥¬ player ∞¥√º∏¶ ªË¡¶«ÿæﬂ«‘
-	// -> µŒ ºΩ≈Õø° ¥Î«ÿ lock¿ª ∞…æÓæﬂ «‘
+	// Ìï¥Îãπ ÏÑπÌÑ∞Ïóê playerÍ∞Ä ÏûàÎäîÏßÄ ÌôïÏù∏
+	// ÎßåÏïΩ ÌòÑÏû¨ ÏÑπÌÑ∞ Ï¢åÌëúÍ∞Ä -1Ïù¥ ÏïÑÎãàÎ©¥ Ï≤òÏùå ÏõÄÏßÅÏù¥Îäî Í≤å ÏïÑÎãàÎØÄÎ°ú Ïù¥Îèô Ï†ÑÏóê ÌòÑÏû¨ ÏÑπÌÑ∞Ïóê ÏúÑÏπòÌï¥ ÏûàÎäî player Í∞ùÏ≤¥Î•º ÏÇ≠Ï†úÌï¥ÏïºÌï®
+	// -> Îëê ÏÑπÌÑ∞Ïóê ÎåÄÌï¥ lockÏùÑ Í±∏Ïñ¥Ïïº Ìï®
 	if (player->sectorX != -1 && player->sectorY != -1)
 	{
-		// ¿Ã¿¸ ºΩ≈Õ¡¬«•øÕ «ˆ¿Á æÚ¿∫ ºΩ≈Õ ¡¬«•∞° ¥Ÿ∏£¥Ÿ¥¬ ∞Õ¿∫ ºΩ≈Õ∏¶ ¿Ãµø «ﬂ¥Ÿ¥¬ ¿«πÃ 
-		// -> ¿Ã¿¸ ºΩ≈Õ¡¬«•ø°º≠ player ∞¥√º ªË¡¶ »ƒ «ˆ¿Á ºΩ≈Õ ¿ßƒ°ø° √ﬂ∞°
+		// Ïù¥Ï†Ñ ÏÑπÌÑ∞Ï¢åÌëúÏôÄ ÌòÑÏû¨ ÏñªÏùÄ ÏÑπÌÑ∞ Ï¢åÌëúÍ∞Ä Îã§Î•¥Îã§Îäî Í≤ÉÏùÄ ÏÑπÌÑ∞Î•º Ïù¥Îèô ÌñàÎã§Îäî ÏùòÎØ∏ 
+		// -> Ïù¥Ï†Ñ ÏÑπÌÑ∞Ï¢åÌëúÏóêÏÑú player Í∞ùÏ≤¥ ÏÇ≠Ï†ú ÌõÑ ÌòÑÏû¨ ÏÑπÌÑ∞ ÏúÑÏπòÏóê Ï∂îÍ∞Ä
 		if (player->sectorX != sectorX || player->sectorY != sectorY)
 		{
 			int curX = player->sectorX;
 			int curY = player->sectorY;
 			
-			// «ˆ¿Á ºΩ≈Õ ¡¬«•∑Œ ∫∏¡§
+			// ÌòÑÏû¨ ÏÑπÌÑ∞ Ï¢åÌëúÎ°ú Î≥¥Ï†ï
 			player->sectorX = sectorX;
 			player->sectorY = sectorY;
 
-			// «ˆ¿Á ºΩ≈ÕøÕ ¿Ãµø ºΩ≈Õø° ∏µŒ lock ∞…æÓæﬂ «‘
+			// ÌòÑÏû¨ ÏÑπÌÑ∞ÏôÄ Ïù¥Îèô ÏÑπÌÑ∞Ïóê Î™®Îëê lock Í±∏Ïñ¥Ïïº Ìï®
 			while (true)
 			{
-				// lock æÚ¿ª ∂ß±Ó¡ˆ ∞Ëº” ºˆ«‡
+				// lock ÏñªÏùÑ ÎïåÍπåÏßÄ Í≥ÑÏÜç ÏàòÌñâ
 				if (false == TryAcquireSRWLockExclusive(&m_Sector[curY][curX].sectorLock))
 					continue;
 
-				// lock æÚ¿ª ∂ß±Ó¡ˆ ∞Ëº” ºˆ«‡ («ˆ¿Á ºΩ≈Õø° ¥Î«— lock¿∫ æÚ¿∫ ªÛ≈¬
+				// lock ÏñªÏùÑ ÎïåÍπåÏßÄ Í≥ÑÏÜç ÏàòÌñâ (ÌòÑÏû¨ ÏÑπÌÑ∞Ïóê ÎåÄÌïú lockÏùÄ ÏñªÏùÄ ÏÉÅÌÉú
 				if (false == TryAcquireSRWLockExclusive(&m_Sector[sectorY][sectorX].sectorLock))
 				{
-					// «ˆ¿Á ºΩ≈Õø° ¥Î«ÿ æÚ¿∫ lock¿∫ «ÿ¡¶«ÿæﬂ «‘
+					// ÌòÑÏû¨ ÏÑπÌÑ∞Ïóê ÎåÄÌï¥ ÏñªÏùÄ lockÏùÄ Ìï¥Ï†úÌï¥Ïïº Ìï®
 					ReleaseSRWLockExclusive(&m_Sector[curY][curX].sectorLock);
 
-					// «ˆ¿Á ºˆ«‡ threadø°º≠ µŒ ºΩ≈Õ ∞¢∞¢¿« lock¿ª æÚ¥¬ ∞Õø° ¥Î«ÿ Ω«∆–«ﬂ¿Ω
-					// ∞Ëº” π´«—∑Á«¡ µπ∏Æ∏È thread ¡°¿Ø∏¶ µ∂¬˜¡ˆ«œ∞‘ µ«π«∑Œ ¥Ÿ∏• thread∑Œ ƒˆ≈“ ≥—±Ë
+					// ÌòÑÏû¨ ÏàòÌñâ threadÏóêÏÑú Îëê ÏÑπÌÑ∞ Í∞ÅÍ∞ÅÏùò lockÏùÑ ÏñªÎäî Í≤ÉÏóê ÎåÄÌï¥ Ïã§Ìå®ÌñàÏùå
+					// Í≥ÑÏÜç Î¨¥ÌïúÎ£®ÌîÑ ÎèåÎ¶¨Î©¥ thread Ï†êÏú†Î•º ÎèÖÏ∞®ÏßÄÌïòÍ≤å ÎêòÎØÄÎ°ú Îã§Î•∏ threadÎ°ú ÌÄÄÌÖÄ ÎÑòÍπÄ
 					YieldProcessor();
 
 					continue;
 				}
 
-				// µŒ ºΩ≈Õø° ¥Î«— lock¿ª ∏µŒ æÚ¿∫ ªÛ≈¬
+				// Îëê ÏÑπÌÑ∞Ïóê ÎåÄÌïú lockÏùÑ Î™®Îëê ÏñªÏùÄ ÏÉÅÌÉú
 
-				// «ˆ¿Á ºΩ≈Õø° ¿÷¥¬ player ∞¥√º √£æ∆º≠ ªË¡¶
+				// ÌòÑÏû¨ ÏÑπÌÑ∞Ïóê ÏûàÎäî player Í∞ùÏ≤¥ Ï∞æÏïÑÏÑú ÏÇ≠Ï†ú
 				auto iter = m_Sector[curY][curX].playerSet.find(player);
 
 				if (iter != m_Sector[curY][curX].playerSet.end())
 					m_Sector[curY][curX].playerSet.erase(iter);
 
-				// «ˆ¿Á ºΩ≈Õ ¿ßƒ°ø° √ﬂ∞°
+				// ÌòÑÏû¨ ÏÑπÌÑ∞ ÏúÑÏπòÏóê Ï∂îÍ∞Ä
 				m_Sector[player->sectorY][player->sectorX].playerSet.emplace(player);
 
 				ReleaseSRWLockExclusive(&m_Sector[curY][curX].sectorLock);
@@ -596,16 +598,16 @@ void ChatServer::netPacketProc_SectorMove(Player* player, CPacket* packet)
 			}
 		}
 	}
-	// √≥¿Ω ¡¬«• ¿Ãµø Ω√, «ÿ¥Á ¡¬«•ø° ∞¥√º √ﬂ∞°
+	// Ï≤òÏùå Ï¢åÌëú Ïù¥Îèô Ïãú, Ìï¥Îãπ Ï¢åÌëúÏóê Í∞ùÏ≤¥ Ï∂îÍ∞Ä
 	else
 	{
-		// «ˆ¿Á ºΩ≈Õ ¡¬«•∑Œ ∫∏¡§
+		// ÌòÑÏû¨ ÏÑπÌÑ∞ Ï¢åÌëúÎ°ú Î≥¥Ï†ï
 		player->sectorX = sectorX;
 		player->sectorY = sectorY;
 
 		AcquireSRWLockExclusive(&m_Sector[player->sectorY][player->sectorX].sectorLock);
 		
-		// ºΩ≈Õ ¿ßƒ°ø° √ﬂ∞°
+		// ÏÑπÌÑ∞ ÏúÑÏπòÏóê Ï∂îÍ∞Ä
 		m_Sector[player->sectorY][player->sectorX].playerSet.emplace(player);
 
 		ReleaseSRWLockExclusive(&m_Sector[player->sectorY][player->sectorX].sectorLock);
@@ -613,22 +615,22 @@ void ChatServer::netPacketProc_SectorMove(Player* player, CPacket* packet)
 
 	InterlockedIncrement64(&m_sectorMovePacketTPS);
 
-	CPacket* resPacket = CPacket::Alloc();			// ¿¿¥‰ ∆–≈∂ ª˝º∫
+	CPacket* resPacket = CPacket::Alloc();			// ÏùëÎãµ Ìå®ÌÇ∑ ÏÉùÏÑ±
 
 	mpResSectorMove(resPacket, player->accountNo, player->sectorX, player->sectorY);
 
-	// ºΩ≈Õ ¿Ãµø ¿¿¥‰ ∆–≈∂ ¿¸º€
+	// ÏÑπÌÑ∞ Ïù¥Îèô ÏùëÎãµ Ìå®ÌÇ∑ Ï†ÑÏÜ°
 	SendPacket(sessionID, resPacket);
 
-	CPacket::Free(resPacket);						// ¿¿¥‰ ∆–≈∂ π›»Ø
+	CPacket::Free(resPacket);						// ÏùëÎãµ Ìå®ÌÇ∑ Î∞òÌôò
 }
 
-// √§∆√ ∫∏≥ª±‚
+// Ï±ÑÌåÖ Î≥¥ÎÇ¥Í∏∞
 void ChatServer::netPacketProc_Chatting(Player* player, CPacket* packet)
 {
 	uint64_t sessionID = player->sessionID;
 
-	// Packet ≈©±‚ø° ¥Î«— øπø‹ √≥∏Æ 
+	// Packet ÌÅ¨Í∏∞Ïóê ÎåÄÌïú ÏòàÏô∏ Ï≤òÎ¶¨ 
 	if (packet->GetDataSize() < sizeof(INT64) + sizeof(WORD) + sizeof(wchar_t))
 	{
 		int size = packet->GetDataSize();
@@ -641,10 +643,10 @@ void ChatServer::netPacketProc_Chatting(Player* player, CPacket* packet)
 	WORD msgLen;
 	WCHAR* message;
 
-	// accountNo∏¶ ø™¡˜∑ƒ»≠«ÿº≠ æÚæÓø»
+	// accountNoÎ•º Ïó≠ÏßÅÎ†¨ÌôîÌï¥ÏÑú ÏñªÏñ¥Ïò¥
 	*packet >> accountNo;
 
-	// accountNo∞° ¥Ÿ∏• ∞ÊøÏ
+	// accountNoÍ∞Ä Îã§Î•∏ Í≤ΩÏö∞
 	if (accountNo != player->accountNo)
 	{
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Chatting Request Packet > account Error\tplayer: %IId\tpacket : %IId", player->accountNo, accountNo);
@@ -652,10 +654,10 @@ void ChatServer::netPacketProc_Chatting(Player* player, CPacket* packet)
 		return;
 	}
 
-	// √§∆√ ∏ﬁΩ√¡ˆ ±Ê¿Ã∏¶ ø™¡˜∑ƒ»≠«ÿº≠ æÚæÓø»
+	// Ï±ÑÌåÖ Î©îÏãúÏßÄ Í∏∏Ïù¥Î•º Ïó≠ÏßÅÎ†¨ÌôîÌï¥ÏÑú ÏñªÏñ¥Ïò¥
 	*packet >> msgLen;
 
-	// «Ï¥ı ∆‰¿Ã∑ŒµÂ ≈©±‚øÕ Ω«¡¶ ∆‰¿Ã∑ŒµÂ ≈©±‚∞° ¥Ÿ∏• ∞ÊøÏ
+	// Ìó§Îçî ÌéòÏù¥Î°úÎìú ÌÅ¨Í∏∞ÏôÄ Ïã§Ï†ú ÌéòÏù¥Î°úÎìú ÌÅ¨Í∏∞Í∞Ä Îã§Î•∏ Í≤ΩÏö∞
 	if (packet->GetDataSize() != msgLen)
 	{
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Chatting Request Packet > Payload Size Error : %d", msgLen);
@@ -666,7 +668,7 @@ void ChatServer::netPacketProc_Chatting(Player* player, CPacket* packet)
 
 	player->recvLastTime = timeGetTime();
 
-	// ºΩ≈Õ π¸¿ß »Æ¿Œ
+	// ÏÑπÌÑ∞ Î≤îÏúÑ ÌôïÏù∏
 	if (player->sectorX >= dfSECTOR_X_MAX || player->sectorX < 0 || player->sectorY >= dfSECTOR_Y_MAX || player->sectorY < 0)
 	{
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"Chatting Request Packet > Sector Bound Error");
@@ -676,23 +678,23 @@ void ChatServer::netPacketProc_Chatting(Player* player, CPacket* packet)
 
 	InterlockedIncrement64(&m_chattingReqTPS);
 
-	CPacket* resPacket = CPacket::Alloc();			// ¿¿¥‰  ∆–≈∂ ª˝º∫
+	CPacket* resPacket = CPacket::Alloc();			// ÏùëÎãµ  Ìå®ÌÇ∑ ÏÉùÏÑ±
 
-	// √§∆√ ¿¿¥‰ ∆–≈∂ Setting
+	// Ï±ÑÌåÖ ÏùëÎãµ Ìå®ÌÇ∑ Setting
 	mpResChatMessage(resPacket, player->accountNo, player->ID, player->nickname, msgLen, (WCHAR*)packet->GetReadBufferPtr());
 	packet->MoveReadPos(msgLen);
 
-	// player∞° ¡∏¿Á«œ¥¬ ºΩ≈Õ¿« ¡÷∫Ø 9∞≥ ºΩ≈Õ ±∏«œ±‚
+	// playerÍ∞Ä Ï°¥Ïû¨ÌïòÎäî ÏÑπÌÑ∞Ïùò Ï£ºÎ≥Ä 9Í∞ú ÏÑπÌÑ∞ Íµ¨ÌïòÍ∏∞
 	st_SECTOR_AROUND sectorAround;
 	GetSectorAround(player->sectorX, player->sectorY, &sectorAround);
 
-	// ¡÷∫Ø sector lock
+	// Ï£ºÎ≥Ä sector lock
 	for (int i = 0; i < sectorAround.iCount; i++)
 		AcquireSRWLockShared(&m_Sector[sectorAround.Around[i].y][sectorAround.Around[i].x].sectorLock);
 
 	PRO_BEGIN(L"Chat_SendPacket");
 
-	// ¡÷∫Ø ºΩ≈Õø° ¡∏¿Á«œ¥¬ PlayerµÈø°∞‘ √§∆√ ¿¿¥‰ ∆–≈∂ ¿¸º€
+	// Ï£ºÎ≥Ä ÏÑπÌÑ∞Ïóê Ï°¥Ïû¨ÌïòÎäî PlayerÎì§ÏóêÍ≤å Ï±ÑÌåÖ ÏùëÎãµ Ìå®ÌÇ∑ Ï†ÑÏÜ°
 	for (int i = 0; i < sectorAround.iCount; i++)
 	{
 		auto iter = m_Sector[sectorAround.Around[i].y][sectorAround.Around[i].x].playerSet.begin();
@@ -709,19 +711,19 @@ void ChatServer::netPacketProc_Chatting(Player* player, CPacket* packet)
 
 	PRO_END(L"Chat_SendPacket");
 
-	// ¡÷∫Ø sector unlock
+	// Ï£ºÎ≥Ä sector unlock
 	for (int i = 0; i < sectorAround.iCount; i++)
 		ReleaseSRWLockShared(&m_Sector[sectorAround.Around[i].y][sectorAround.Around[i].x].sectorLock);
 
-	CPacket::Free(resPacket);					// ¿¿¥‰ ∆–≈∂ π›»Ø
+	CPacket::Free(resPacket);					// ÏùëÎãµ Ìå®ÌÇ∑ Î∞òÌôò
 }
 
-// «œ∆Æ∫Ò∆Æ - «ˆ¿Á¥¬ æ∆π´∑± ±‚¥…¿Ã æ¯¥¬ ªÛ≈¬
+// ÌïòÌä∏ÎπÑÌä∏ - ÌòÑÏû¨Îäî ÏïÑÎ¨¥Îü∞ Í∏∞Îä•Ïù¥ ÏóÜÎäî ÏÉÅÌÉú
 void ChatServer::netPacketProc_HeartBeat(Player* player, CPacket* packet)
 {
 	uint64_t sessionID = player->sessionID;
 
-	// øπø‹ √≥∏Æ -> «œ∆Æ∫Ò∆Æ ∆–≈∂¿∫ ≈∏¿‘ ø‹ø° √ﬂ∞°¿˚¿Œ µ•¿Ã≈Õ∞° ¿÷¿∏∏È æ»µ 
+	// ÏòàÏô∏ Ï≤òÎ¶¨ -> ÌïòÌä∏ÎπÑÌä∏ Ìå®ÌÇ∑ÏùÄ ÌÉÄÏûÖ Ïô∏Ïóê Ï∂îÍ∞ÄÏ†ÅÏù∏ Îç∞Ïù¥ÌÑ∞Í∞Ä ÏûàÏúºÎ©¥ ÏïàÎê®
 	if (packet->GetDataSize() > 0)
 	{
 		chatLog->logger(dfLOG_LEVEL_ERROR, __LINE__, L"HeartBeat Request Packet > Packet is not empty");

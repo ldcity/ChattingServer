@@ -25,7 +25,7 @@ public:
 	bool SendPacket(uint64_t sessionID, CPacket* packet);
 
 	// Server Start
-	bool Start(const wchar_t* IP, unsigned short PORT, int createWorkerThreadCnt, int runningWorkerThreadCnt, bool nagelOff, int maxAcceptCnt, unsigned char packet_code, unsigned char packet_key);
+	bool Start(const wchar_t* IP, unsigned short PORT, int createWorkerThreadCnt, int runningWorkerThreadCnt, bool nagelOff, bool zeroCopyOff, int maxAcceptCnt, unsigned char packet_code, unsigned char packet_key, DWORD timeout);
 
 	// Server Stop
 	void Stop();
@@ -60,6 +60,13 @@ protected:
 	virtual void OnRecv(uint64_t sessionID, CPacket* packet) = 0;
 
 	// ==========================================================
+	// 세션 타임아웃 관련 처리
+	// [PARAM] __int64 sessionID
+	// [RETURN] X 
+	// ==========================================================
+	virtual void OnTimeout(uint64_t sessionID) = 0;
+
+	// ==========================================================
 	// Error Check
 	// [PARAM] int errorCode, wchar_t* msg
 	// [RETURN] X 
@@ -69,9 +76,11 @@ protected:
 private:
 	friend unsigned __stdcall NetAcceptThread(void* param);
 	friend unsigned __stdcall NetWorkerThread(void* param);
+	friend unsigned __stdcall TimeoutThread(void* param);
 
 	bool NetAcceptThread_serv();
 	bool NetWorkerThread_serv();
+	bool TimeoutThread_serv();
 
 	// 완료통지 후, 작업 처리
 	bool RecvProc(stSESSION* pSession, long cbTransferred);
@@ -92,8 +101,6 @@ private:
 
 	inline void ReleasePQCS(stSESSION* pSession)
 	{
-		 InterlockedIncrement64(&pqcsCallTotal);
-		 InterlockedIncrement64(&pqcsCallTPS);
 		PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::RELEASE);
 	}
 
@@ -107,6 +114,18 @@ private:
 		return (uint64_t)(sessionID >> SESSION_ID_BITS);
 	}
 
+	// 타임아웃 주기 : 현재 시간 ~ 서버의 타임아웃 시간 (ms 단위)
+	void SetTimeout(stSESSION* session)
+	{
+		InterlockedExchange(&session->Timer, timeGetTime() + mTimeout);
+	}
+
+	// 타임아웃 주기 : 현재 시간 ~ 매개변수로 받은 타임아웃 시간 (ms 단위)
+	void SetTimeout(stSESSION* session, DWORD timeout)
+	{
+		InterlockedExchange(&session->Timer, timeGetTime() + timeout);
+	}
+
 private:
 	// 서버용 변수
 	SOCKET ListenSocket;								// Listen Socket
@@ -114,23 +133,27 @@ private:
 
 	HANDLE IOCPHandle;									// IOCP Handle
 	HANDLE mAcceptThread;								// Accept Thread
-	vector<HANDLE> mWorkerThreads;						// Worker Threads Count
+	HANDLE mTimeoutThread;								// Timeout Thread
+	std::vector<HANDLE> mWorkerThreads;					// Worker Threads Count
 	
 	long s_workerThreadCount;							// Worker Thread Count (Server)
 	long s_runningThreadCount;							// Running Thread Count (Server)
 
 	long s_maxAcceptCount;								// Max Accept Count
 
-	stSESSION* SessionArray;					// Session Array			
-	LockFreeStack<int> AvailableIndexStack;		// Available Session Array Index
+	stSESSION* SessionArray;							// Session Array			
+	LockFreeStack<int> AvailableIndexStack;				// Available Session Array Index
 
-	// PQCS 호출할 때 사용
+	DWORD mServerTime;									// Server Time
+	DWORD mTimeout;										// 외부 contents 단에서 설정한 타임아웃
+
 	enum PQCSTYPE
 	{
-		SENDPOST = 100,		// Send 등록
-		SENDPOSTDICONN,		// Send 등록 후 Disconnect
-		RELEASE,			// Release
-		STOP,				// Stop
+		SENDPOST = 100,
+		SENDPOSTDICONN,
+		RELEASE,
+		TIMEOUT,
+		STOP,
 	};
 
 protected:

@@ -204,7 +204,7 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 
 	// Timeout Thread
 	mTimeoutThread = (HANDLE)_beginthreadex(NULL, 0, TimeoutThread, this, 0, NULL);
-	if (AcceptThread == NULL)
+	if (mTimeoutThread == NULL)
 	{
 		int threadError = GetLastError();
 		logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"_beginthreadex() Error : %d", threadError);

@@ -24,6 +24,17 @@ unsigned __stdcall NetWorkerThread(void* param)
 	return 0;
 }
 
+// Timeout Thread Call
+unsigned __stdcall TimeoutThread(void* param)
+{
+	NetServer* netServ = (NetServer*)param;
+
+	netServ->TimeoutThread_serv();
+
+	return 0;
+}
+
+
 NetServer::NetServer() : ListenSocket(INVALID_SOCKET), ServerPort(0), IOCPHandle(INVALID_HANDLE_VALUE), mAcceptThread(INVALID_HANDLE_VALUE), mWorkerThreads{ INVALID_HANDLE_VALUE },
 s_workerThreadCount(0), s_runningThreadCount(0), s_maxAcceptCount(0), SessionArray{ nullptr }, acceptCount(0), acceptTPS(0), sessionCnt(0),
 releaseCount(0), releaseTPS(0), recvMsgTPS(0), sendMsgTPS(0), recvMsgCount(0), sendMsgCount(0), recvCallTPS(0), sendCallTPS(0),
@@ -51,8 +62,14 @@ NetServer::~NetServer()
 	Stop();
 }
 
-bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerThreadCnt, int runningWorkerThreadCnt, bool nagelOff, int maxAcceptCnt, unsigned char packet_code, unsigned char packet_key)
+bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerThreadCnt, int runningWorkerThreadCnt, bool nagelOff, bool zeroCopyOff, int maxAcceptCnt, unsigned char packet_code, unsigned char packet_key, DWORD timeout)
 {
+
+	// 서버의 현재 시간
+	// 세션들이 서버의 현재 시간을 기준으로 타임아웃 됐는지 판별하기 위해 필요
+	mServerTime = timeGetTime();
+	mTimeout = timeout;
+
 	CPacket::SetCode(packet_code);	// Packet Code
 	CPacket::SetKey(packet_key);	// CheckSum 생성용 고정 Key
 
@@ -180,6 +197,16 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 
 			return false;
 		}
+	}
+
+	// Timeout Thread
+	mTimeoutThread = (HANDLE)_beginthreadex(NULL, 0, TimeoutThread, this, 0, NULL);
+	if (mTimeoutThread == NULL)
+	{
+		int threadError = GetLastError();
+		logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"_beginthreadex() Error : %d", threadError);
+
+		return false;
 	}
 
 	return true;
@@ -363,17 +390,62 @@ bool NetServer::NetWorkerThread_serv()
 		//	ReleaseSession(pSession);
 		//	continue;
 		//}
-		//// Recv Packet Handler
-		//else if (pOverlapped == &pSession->m_stRecvOverlapped && cbTransferred > 0)
-		//	completionOK = RecvProc(pSession, cbTransferred);
-		//// Send Packet Handler
-		//else if (pOverlapped == &pSession->m_stSendOverlapped && cbTransferred > 0)
-		//	completionOK = SendProc(pSession, cbTransferred);
+		// Recv Packet Handler
+		else if (pOverlapped == &pSession->m_stRecvOverlapped && cbTransferred > 0)
+			completionOK = RecvProc(pSession, cbTransferred);
+		// Send Packet Handler
+		else if (pOverlapped == &pSession->m_stSendOverlapped && cbTransferred > 0)
+			completionOK = SendProc(pSession, cbTransferred);
 
-		//// I/O 완료 통지가 더이상 없다면 세션 해제 작업
-		//if (0 == InterlockedDecrement64(&pSession->ioRefCount))
-		//	ReleaseSession(pSession);
+		// I/O 완료 통지가 더이상 없다면 세션 해제 작업
+		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+			ReleaseSession(pSession);
 
+	}
+
+	return true;
+}
+
+// 타임아웃 관리를 위한 스레드
+bool NetServer::TimeoutThread_serv()
+{
+	// 2초마다 타임아웃 갱신 (2초 내외의 타임아웃 오차는 허용)
+	while (1)
+	{
+		// 서버의 현재 시간
+		// 세션들이 서버의 현재 시간을 기준으로 타임아웃 됐는지 판별하기 위해 필요
+		mServerTime = timeGetTime();
+
+		for (int i = 0; i < s_maxAcceptCount; i++)
+		{
+			// 이 사이에 다른 곳에서 재할당되어 다른 세션이 될 수도 있으니 미리 sessionID 셋팅
+			uint64_t sessionID = SessionArray[i].sessionID;
+
+			// 이미 release 된 상태 skip
+			if ((InterlockedOr64((LONG64*)&SessionArray[i].ioRefCount, 0) & RELEASEMASKING) != 0) continue;
+
+			// 아직 소켓 할당이 안 된 상태 skip
+			if (SessionArray[i].m_socketClient == INVALID_SOCKET) continue;
+
+			// 이미 disconnect 된 상태 skip
+			if (SessionArray[i].isDisconnected == true) continue;
+
+			// 재할당되어 다른 세션이 된 상태 skip
+			if (sessionID != SessionArray[i].sessionID) continue;
+
+			// 세션에 부여된 타임아웃 예정 시간(Timer)이 현재 서버 시간보다 미래인 상태 (타임아웃까지 여유있음) skip
+			if (InterlockedOr((LONG*)&SessionArray[i].Timer, 0) >= mServerTime) continue;
+
+			// ----------------------------------------------------------------------
+			// 이곳에 진입한 세션들은 타임아웃 시켜줘야 함
+			OnTimeout(sessionID);		// Contents 서버에서 타임아웃 관련 logic 처리
+
+			// 타임아웃 예약 종료 건이라면 flag 다시 되돌려줌
+			if (SessionArray[i].sendDisconnFlag == true)
+				InterlockedExchange8((char*)&SessionArray[i].sendDisconnFlag, false);
+		}
+
+		Sleep(2000);
 	}
 
 	return true;
@@ -386,6 +458,12 @@ bool NetServer::RecvProc(stSESSION* pSession, long cbTransferred)
 
 	// 현재 recv 링버퍼에서 사용 중인 크기
 	int useSize = pSession->recvRingBuffer.GetUseSize();
+
+	// 보내고 끊기 예약이 되어있는 세션의 경우, 그 사이에 패킷이 와도 타임아웃 주기 업데이트를 하면 안됨
+	// -> 만약 구분 없이 수신된 세션들의 주기를 모두 업데이트하면
+	// 보내고 끊어야 되는 세션은 계속 타임아웃 주기가 갱신되어 끊기지 않음
+	if (!pSession->sendDisconnFlag)
+		SetTimeout(pSession);
 
 	// Recv Message Process
 	while (useSize > 0)
