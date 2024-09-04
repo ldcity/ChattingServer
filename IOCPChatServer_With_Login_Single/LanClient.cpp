@@ -27,14 +27,14 @@ recvBytesTPS(0), sendBytesTPS(0), recvBytes(0), sendBytes(0), s_workerThreadCoun
 	wprintf(L"LanClient Initializing...\n");
 
 	mSession.sessionID = -1;
-	mSession.m_socketClient = INVALID_SOCKET;
+	mSession._socketClient = INVALID_SOCKET;
 	ZeroMemory(mSession.IP_str, sizeof(mSession.IP_str));
 	mSession.IP_num = 0;
 	mSession.PORT = 0;
 	//LastRecvTime = 0;
 
-	ZeroMemory(&mSession.m_stRecvOverlapped, sizeof(OVERLAPPED));
-	ZeroMemory(&mSession.m_stSendOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&mSession._stRecvOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&mSession._stSendOverlapped, sizeof(OVERLAPPED));
 	mSession.recvRingBuffer.ClearBuffer();
 
 	mSession.sendPacketCount = 0;
@@ -122,13 +122,13 @@ bool LanClient::Connect()
 		return false;
 	}
 
-	if (mSession.m_socketClient != INVALID_SOCKET)
+	if (mSession._socketClient != INVALID_SOCKET)
 		return false;
 
 
 	// Create Socket
-	mSession.m_socketClient = socket(AF_INET, SOCK_STREAM, 0);
-	if (INVALID_SOCKET == mSession.m_socketClient)
+	mSession._socketClient = socket(AF_INET, SOCK_STREAM, 0);
+	if (INVALID_SOCKET == mSession._socketClient)
 	{
 		int sockError = WSAGetLastError();
 
@@ -137,7 +137,7 @@ bool LanClient::Connect()
 	
 	// TCP Send Buffer Remove - zero copy
 	int sendVal = 0;
-	if (setsockopt(mSession.m_socketClient, SOL_SOCKET, SO_SNDBUF, (const char*)&sendVal, sizeof(sendVal)) == SOCKET_ERROR)
+	if (setsockopt(mSession._socketClient, SOL_SOCKET, SO_SNDBUF, (const char*)&sendVal, sizeof(sendVal)) == SOCKET_ERROR)
 	{
 		int setsockoptError = WSAGetLastError();
 
@@ -147,7 +147,7 @@ bool LanClient::Connect()
 	if (mNagleOff)
 	{
 		// Nagle off
-		if (setsockopt(mSession.m_socketClient, IPPROTO_TCP, TCP_NODELAY, (const char*)&mNagleOff, sizeof(mNagleOff)) == SOCKET_ERROR)
+		if (setsockopt(mSession._socketClient, IPPROTO_TCP, TCP_NODELAY, (const char*)&mNagleOff, sizeof(mNagleOff)) == SOCKET_ERROR)
 		{
 			int setsockoptError = WSAGetLastError();
 
@@ -159,7 +159,7 @@ bool LanClient::Connect()
 	struct linger ling;
 	ling.l_onoff = 1;
 	ling.l_linger = 0;
-	if (setsockopt(mSession.m_socketClient, SOL_SOCKET, SO_LINGER, (const char*)&ling, sizeof(ling)) == SOCKET_ERROR)
+	if (setsockopt(mSession._socketClient, SOL_SOCKET, SO_LINGER, (const char*)&ling, sizeof(ling)) == SOCKET_ERROR)
 	{
 		int setsockoptError = WSAGetLastError();
 
@@ -174,24 +174,24 @@ bool LanClient::Connect()
 	// 세션 참조 카운트를 올려줌
 	InterlockedExchange64(&mSession.ioRefCount, 1);
 
-	if (connect(mSession.m_socketClient, (SOCKADDR*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
+	if (connect(mSession._socketClient, (SOCKADDR*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
 	{
 		int connectError = WSAGetLastError();
 
 		// 예외 처리 추후 개발
-		//closesocket(pSession->m_socketClient);
-		//pSession->m_socketClient = INVALID_SOCKET;
+		//closesocket(pSession->_socketClient);
+		//pSession->_socketClient = INVALID_SOCKET;
 
-		closesocket(mSession.m_socketClient);
-		mSession.m_socketClient = INVALID_SOCKET;
+		closesocket(mSession._socketClient);
+		mSession._socketClient = INVALID_SOCKET;
 
 		return false;
 	}
 
 	// 링버퍼 내부에 남아있는 거 처리
 	mSession.recvRingBuffer.ClearBuffer();
-	ZeroMemory(&mSession.m_stSendOverlapped, sizeof(OVERLAPPED));
-	ZeroMemory(&mSession.m_stRecvOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&mSession._stSendOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&mSession._stRecvOverlapped, sizeof(OVERLAPPED));
 
 	// 종료flag 셋팅
 	InterlockedExchange8((char*)&mSession.isDisconnected, false);
@@ -200,12 +200,12 @@ bool LanClient::Connect()
 
 	InterlockedExchange8((char*)&mSession.sendFlag, false);
 
-	if (CreateIoCompletionPort((HANDLE)mSession.m_socketClient, IOCPHandle, (ULONG_PTR)&mSession, 0) == NULL)
+	if (CreateIoCompletionPort((HANDLE)mSession._socketClient, IOCPHandle, (ULONG_PTR)&mSession, 0) == NULL)
 	{
 		int ciocpError = WSAGetLastError();
 
-		closesocket(mSession.m_socketClient);
-		mSession.m_socketClient = INVALID_SOCKET;
+		closesocket(mSession._socketClient);
+		mSession._socketClient = INVALID_SOCKET;
 
 		CloseHandle(IOCPHandle);
 
@@ -262,11 +262,11 @@ bool LanClient::LanWorkerThread_serv()
 		}
 
 		// Send / Recv Proc
-		else if (pOverlapped == &pSession->m_stRecvOverlapped && cbTransferred > 0)
+		else if (pOverlapped == &pSession->_stRecvOverlapped && cbTransferred > 0)
 		{
 			completionOK = RecvProc(cbTransferred);
 		}
-		else if (pOverlapped == &pSession->m_stSendOverlapped && cbTransferred > 0)
+		else if (pOverlapped == &pSession->_stSendOverlapped && cbTransferred > 0)
 		{
 			completionOK = SendProc(cbTransferred);
 		
@@ -445,12 +445,12 @@ bool LanClient::RecvPost()
 	}
 
 	// recv overlapped I/O 구조체 reset
-	ZeroMemory(&mSession.m_stRecvOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&mSession._stRecvOverlapped, sizeof(OVERLAPPED));
 
 	// recv
 	// ioCount : WSARecv 완료 통지가 리턴보다 먼저 떨어질 수 있으므로 WSARecv 호출 전에 증가시켜야 함
 	InterlockedIncrement64(&mSession.ioRefCount);
-	int recvRet = WSARecv(mSession.m_socketClient, wsa, wsaCnt, NULL, &flags, &mSession.m_stRecvOverlapped, NULL);
+	int recvRet = WSARecv(mSession._socketClient, wsa, wsaCnt, NULL, &flags, &mSession._stRecvOverlapped, NULL);
 	InterlockedIncrement64(&recvCallCount);
 	InterlockedIncrement64(&recvCallTPS);
 
@@ -482,7 +482,7 @@ bool LanClient::RecvPost()
 			// Pending 걸렸는데, 이 시점에 disconnect되면 이 때 남아있던 비동기 io 정리해줘야함
 			if (mSession.isDisconnected)
 			{
-				CancelIoEx((HANDLE)mSession.m_socketClient, &mSession.m_stRecvOverlapped);
+				CancelIoEx((HANDLE)mSession._socketClient, &mSession._stRecvOverlapped);
 			}
 
 		}
@@ -559,12 +559,12 @@ bool LanClient::SendPost()
  	mSession.sendPacketCount = deqIdx;
 
 	// send overlapped I/O 구조체 reset
-	ZeroMemory(&mSession.m_stSendOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&mSession._stSendOverlapped, sizeof(OVERLAPPED));
 
 	// send
 	// ioCount : WSASend 완료 통지가 리턴보다 먼저 떨어질 수 있으므로 WSASend 호출 전에 증가시켜야 함
 	InterlockedIncrement64(&mSession.ioRefCount);
-	int sendRet = WSASend(mSession.m_socketClient, wsa, deqIdx, NULL, 0, &mSession.m_stSendOverlapped, NULL);
+	int sendRet = WSASend(mSession._socketClient, wsa, deqIdx, NULL, 0, &mSession._stSendOverlapped, NULL);
 	InterlockedIncrement64(&sendCallCount);
 	InterlockedIncrement64(&sendCallTPS);
 	
@@ -676,10 +676,10 @@ void LanClient::ReleaseSession()
 
 	mSession.sessionID = -1;
 
-	SOCKET sock = mSession.m_socketClient;
+	SOCKET sock = mSession._socketClient;
 
 	// 소켓 Invalid 처리하여 더이상 해당 소켓으로 I/O 못받게 함
-	mSession.m_socketClient = INVALID_SOCKET;
+	mSession._socketClient = INVALID_SOCKET;
 
 	InterlockedExchange8((char*)&mSession.sendFlag, false);
 
@@ -710,8 +710,8 @@ void LanClient::ReleaseSession()
 	mSession.PORT = 0;
 	//LastRecvTime = 0;
 
-	ZeroMemory(&mSession.m_stRecvOverlapped, sizeof(OVERLAPPED));
-	ZeroMemory(&mSession.m_stSendOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&mSession._stRecvOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&mSession._stSendOverlapped, sizeof(OVERLAPPED));
 	mSession.recvRingBuffer.ClearBuffer();
 
 	mSession.ioRefCount = 0;			// accept 이후 바로 recv 걸어버리기 때문에 항상 default가 1
@@ -756,7 +756,7 @@ bool LanClient::DisconnectSession()
 	InterlockedExchange8((char*)&mSession.isDisconnected, true);
 
 	// 현재 IO 작업 모두 취소
-	CancelIoEx((HANDLE)mSession.m_socketClient, NULL);
+	CancelIoEx((HANDLE)mSession._socketClient, NULL);
 
 	// Disconnect 함수에서 증가시킨 세션 참조 카운트 감소
 	if (0 == InterlockedDecrement64(&mSession.ioRefCount))
@@ -783,7 +783,7 @@ void LanClient::Stop()
 
 	WaitForMultipleObjects(s_workerThreadCount, &mWorkerThreads[0], TRUE, INFINITE);
 
-	closesocket(mSession.m_socketClient);
+	closesocket(mSession._socketClient);
 
 	CloseHandle(IOCPHandle);
 

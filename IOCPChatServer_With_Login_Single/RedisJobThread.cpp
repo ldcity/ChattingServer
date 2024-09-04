@@ -5,18 +5,18 @@
 
 void RedisWorkerThread::Run()
 {
-	mRedis->Connect(redisIP, redisPort);
+	_redis->Connect(_redisIP, _redisPort);
 
-	while (mRunFlag)
+	while (_runFlag)
 	{
-		WaitForSingleObject(mEventHandle, INFINITE);
+		WaitForSingleObject(_eventHandle, INFINITE);
 
 		Job* job = nullptr;
 
 		// Queue에 Job이 없을 때까지 update 수행
-		while (mJobQ.GetSize() > 0)
+		while (_jobQ.GetSize() > 0)
 		{
-			if (mJobQ.Dequeue(job))
+			if (_jobQ.Dequeue(job))
 			{
 				switch (job->type)
 				{
@@ -29,10 +29,10 @@ void RedisWorkerThread::Run()
 					break;
 				}
 
-				mJobPool.Free(job);
+				_jobPool.Free(job);
 
-				InterlockedIncrement64(&mJobThreadUpdateCnt);
-				InterlockedIncrement64(&mJobThreadUpdateTPS);
+				InterlockedIncrement64(&_jobThreadUpdateCnt);
+				InterlockedIncrement64(&_jobThreadUpdateTPS);
 			}
 		}
 	}
@@ -43,7 +43,7 @@ void RedisWorkerThread::RedisGet(Job* job)
 	std::string accountNoStr = std::to_string(job->accountNo);
 
 	// 비동기 redis get 요청
-	mRedis->AsyncGet(accountNoStr, [=](const cpp_redis::reply& reply) {
+	_redis->AsyncGet(accountNoStr, [=](const cpp_redis::reply& reply) {
 
 		BYTE status = en_PACKET_CS_MONITOR_TOOL_RES_LOGIN::dfMONITOR_TOOL_LOGIN_OK;
 
@@ -70,6 +70,6 @@ void RedisWorkerThread::RedisGet(Job* job)
 		// 로그인 응답 패킷 Setting
 		MPResLogin(resLoginPacket, status, job->accountNo);
 
-		chatServer->SendJob(job->sessionID, ChatServer::JobType::LOGIN_RES, resLoginPacket);
+		_chatServer->SendJob(job->sessionID, ChatServer::JobType::LOGIN_RES, resLoginPacket);
 	});
 }

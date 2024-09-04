@@ -10,7 +10,7 @@ unsigned __stdcall AcceptThread(void* param)
 {
 	NetServer* lanServ = (NetServer*)param;
 
-	lanServ->AcceptThread_serv();
+	lanServ->AcceptThread_Serv();
 
 	return 0;
 }
@@ -20,7 +20,7 @@ unsigned __stdcall WorkerThread(void* param)
 {
 	NetServer* lanServ = (NetServer*)param;
 
-	lanServ->mWorkerThread_serv();
+	lanServ->WorkerThread_Serv();
 
 	return 0;
 }
@@ -30,20 +30,19 @@ unsigned __stdcall TimeoutThread(void* param)
 {
 	NetServer* netServ = (NetServer*)param;
 
-	netServ->TimeoutThread_serv();
+	netServ->TimeoutThread_Serv();
 
 	return 0;
 }
 
-NetServer::NetServer() : ListenSocket(INVALID_SOCKET), ServerPort(0), IOCPHandle(INVALID_HANDLE_VALUE), mAcceptThread(INVALID_HANDLE_VALUE), mWorkerThreads{ INVALID_HANDLE_VALUE },
-mWorkerThreadCount(0), mRunningThreadCount(0), mMaxAcceptCount(0), SessionArray{ nullptr }, acceptCount(0), acceptTPS(0), sessionCnt(0),
-releaseCount(0), releaseTPS(0), recvMsgTPS(0), sendMsgTPS(0), recvMsgCount(0), sendMsgCount(0), recvCallTPS(0), sendCallTPS(0),
-recvCallCount(0), sendCallCount(0), recvPendingTPS(0), sendPendingTPS(0), recvBytesTPS(0), sendBytesTPS(0), recvBytes(0),
-sendBytes(0), workerThreadCount(0), runningThreadCount(0), startMonitering(false) {
+NetServer::NetServer() : _listenSocket(INVALID_SOCKET), _serverPort(0), _iocpHandle(INVALID_HANDLE_VALUE), _acceptThread(INVALID_HANDLE_VALUE), _workerThreads{ INVALID_HANDLE_VALUE },
+_maxAcceptCount(0), _sessionArray{ nullptr }, _acceptCount(0), _acceptTPS(0), _sessionCnt(0),
+_releaseCount(0), _releaseTPS(0), _recvMsgTPS(0), _sendMsgTPS(0), _recvCallTPS(0), _sendCallTPS(0),
+_recvBytesTPS(0), _sendBytesTPS(0), _workerThreadCount(0), _runningThreadCount(0), _startMonitering(false) {
 	// ========================================================================
 	// Initialize
 	// ========================================================================
-	logger = new Log(L"NetServer");
+	_logger = new Log(L"NetServer");
 
 	wprintf(L"NetServer Initializing...\n");
 
@@ -66,29 +65,29 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 {
 	// 서버의 현재 시간
 	// 세션들이 서버의 현재 시간을 기준으로 타임아웃 됐는지 판별하기 위해 필요
-	mServerTime = timeGetTime();
-	mTimeout = timeout;
+	_serverTime = timeGetTime();
+	_timeout = timeout;
 
 	CPacket::SetCode(packet_code);	// Packet Code
 	CPacket::SetKey(packet_key);	// CheckSum 생성용 고정 Key
 
-	mMaxAcceptCount = maxAcceptCnt;
+	_maxAcceptCount = maxAcceptCnt;
 
 	// 최대 접속 가능한 수만큼 미리 세션 배열 생성
-	SessionArray = new stSESSION[mMaxAcceptCount];
+	_sessionArray = new stSESSION[_maxAcceptCount];
 
 	//  사용 가능한 세션 배열의 index를 관리하기 위해 LockFreeStack 사용
 	// 사용 가능한 index를 오름차순으로 꺼내기 위해 max index부터 push
-	for (int i = mMaxAcceptCount - 1; i >= 0; i--)
+	for (int i = _maxAcceptCount - 1; i >= 0; i--)
 	{
 		// 사용 가능한 인덱스 push
-		AvailableIndexStack.Push(i);
+		_availableIndexStack.Push(i);
 	}
 
 	// Create Listen Socket
-	ListenSocket = socket(AF_INET, SOCK_STREAM, 0);
+	_listenSocket = socket(AF_INET, SOCK_STREAM, 0);
 
-	if (INVALID_SOCKET == ListenSocket)
+	if (INVALID_SOCKET == _listenSocket)
 	{
 		int sockError = WSAGetLastError();
 
@@ -101,7 +100,7 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	InetPtonW(AF_INET, IP, &serverAddr.sin_addr);
 
 	// bind
-	if (bind(ListenSocket, (SOCKADDR*)&serverAddr, sizeof(SOCKADDR_IN)) == SOCKET_ERROR)
+	if (bind(_listenSocket, (SOCKADDR*)&serverAddr, sizeof(SOCKADDR_IN)) == SOCKET_ERROR)
 	{
 		int bindError = WSAGetLastError();
 
@@ -112,10 +111,10 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	{
 		// TCP Send Buffer Remove - zero copy
 		int sendVal = 0;
-		if (setsockopt(ListenSocket, SOL_SOCKET, SO_SNDBUF, (const char*)&sendVal, sizeof(sendVal)) == SOCKET_ERROR)
+		if (setsockopt(_listenSocket, SOL_SOCKET, SO_SNDBUF, (const char*)&sendVal, sizeof(sendVal)) == SOCKET_ERROR)
 		{
 			int setsockoptError = WSAGetLastError();
-			logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"setsockopt() Error : %d", setsockoptError);
+			_logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"setsockopt() Error : %d", setsockoptError);
 
 			return false;
 		}
@@ -124,7 +123,7 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	if (nagelOff)
 	{
 		// Nagle off
-		if (setsockopt(ListenSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&nagelOff, sizeof(nagelOff)) == SOCKET_ERROR)
+		if (setsockopt(_listenSocket, IPPROTO_TCP, TCP_NODELAY, (const char*)&nagelOff, sizeof(nagelOff)) == SOCKET_ERROR)
 		{
 			int setsockoptError = WSAGetLastError();
 
@@ -136,7 +135,7 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	struct linger ling;
 	ling.l_onoff = 1;
 	ling.l_linger = 0;
-	if (setsockopt(ListenSocket, SOL_SOCKET, SO_LINGER, (const char*)&ling, sizeof(ling)) == SOCKET_ERROR)
+	if (setsockopt(_listenSocket, SOL_SOCKET, SO_LINGER, (const char*)&ling, sizeof(ling)) == SOCKET_ERROR)
 	{
 		int setsockoptError = WSAGetLastError();
 
@@ -144,7 +143,7 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	}
 
 	// listen
-	if (listen(ListenSocket, SOMAXCONN) == SOCKET_ERROR)
+	if (listen(_listenSocket, SOMAXCONN) == SOCKET_ERROR)
 	{
 		int listenError = WSAGetLastError();
 
@@ -157,19 +156,19 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	// CPU Core Counting
 	// Worker Thread 개수가 0 이하라면, 코어 개수 * 2 로 재설정
 	if (createWorkerThreadCnt <= 0)
-		mWorkerThreadCount = si.dwNumberOfProcessors * 2;
+		_workerThreadCount = si.dwNumberOfProcessors * 2;
 	else
-		mWorkerThreadCount = createWorkerThreadCnt;
+		_workerThreadCount = createWorkerThreadCnt;
 
 	// Running Thread가 CPU Core 개수를 초과한다면 CPU Core 개수로 재설정
 	if (runningWorkerThreadCnt > si.dwNumberOfProcessors)
-		mRunningThreadCount = si.dwNumberOfProcessors;
+		_runningThreadCount = si.dwNumberOfProcessors;
 	else
-		mRunningThreadCount = runningWorkerThreadCnt;
+		_runningThreadCount = runningWorkerThreadCnt;
 
 	// Create I/O Completion Port
-	IOCPHandle = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, NULL, mRunningThreadCount);
-	if (IOCPHandle == NULL)
+	_iocpHandle = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, NULL, _runningThreadCount);
+	if (_iocpHandle == NULL)
 	{
 		int iocpError = WSAGetLastError();
 		
@@ -181,7 +180,7 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	// ========================================================================
 
 	// Accept Thread
-	mAcceptThread = (HANDLE)_beginthreadex(NULL, 0, AcceptThread, this, 0, NULL);
+	_acceptThread = (HANDLE)_beginthreadex(NULL, 0, AcceptThread, this, 0, NULL);
 	if (AcceptThread == NULL)
 	{
 		int threadError = GetLastError();
@@ -190,11 +189,11 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	}
 
 	// Worker Thread
-	mWorkerThreads.resize(mWorkerThreadCount);
-	for (int i = 0; i < mWorkerThreads.size(); i++)
+	_workerThreads.resize(_workerThreadCount);
+	for (int i = 0; i < _workerThreads.size(); i++)
 	{
-		mWorkerThreads[i] = (HANDLE)_beginthreadex(NULL, 0, WorkerThread, this, 0, NULL);
-		if (mWorkerThreads[i] == NULL)
+		_workerThreads[i] = (HANDLE)_beginthreadex(NULL, 0, WorkerThread, this, 0, NULL);
+		if (_workerThreads[i] == NULL)
 		{
 			int threadError = GetLastError();
 
@@ -203,11 +202,11 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 	}
 
 	// Timeout Thread
-	mTimeoutThread = (HANDLE)_beginthreadex(NULL, 0, TimeoutThread, this, 0, NULL);
+	_timeoutThread = (HANDLE)_beginthreadex(NULL, 0, TimeoutThread, this, 0, NULL);
 	if (AcceptThread == NULL)
 	{
 		int threadError = GetLastError();
-		logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"_beginthreadex() Error : %d", threadError);
+		_logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"_beginthreadex() Error : %d", threadError);
 
 		return false;
 	}
@@ -216,7 +215,7 @@ bool NetServer::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 }
 
 // Accept Thread
-bool NetServer::AcceptThread_serv()
+bool NetServer::AcceptThread_Serv()
 {
 	DWORD threadID = GetCurrentThreadId();
 
@@ -235,7 +234,7 @@ bool NetServer::AcceptThread_serv()
 	while (true)
 	{
 		// accept
-		clientSocket = accept(ListenSocket, (SOCKADDR*)&clientAddr, &addrLen);
+		clientSocket = accept(_listenSocket, (SOCKADDR*)&clientAddr, &addrLen);
 
 		if (clientSocket == INVALID_SOCKET)
 		{
@@ -261,9 +260,9 @@ bool NetServer::AcceptThread_serv()
 
 		// 비어있는 배열 찾기
 		// index stack이 비어있으면 배열이 다 사용중 (full!)
-		if (!AvailableIndexStack.Pop(&index))
+		if (!_availableIndexStack.Pop(&index))
 		{
-			logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"accept # index full");
+			_logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"accept # index full");
 
 			// 방금 accept 했던 소켓 종료
 			closesocket(clientSocket);
@@ -272,11 +271,11 @@ bool NetServer::AcceptThread_serv()
 		}
 		
 		// accept 수
-		InterlockedIncrement64(&acceptTPS);
-		InterlockedIncrement64(&acceptCount);
+		InterlockedIncrement64(&_acceptTPS);
+		InterlockedIncrement64(&_acceptCount);
 
 		// 세션 배열에서 해당 index의 세션 가져옴
-		stSESSION* session = &SessionArray[index];
+		stSESSION* session = &_sessionArray[index];
 
 		// 세션 참조카운트(ioRefCount) 증가
 		// accept 단계에서 소켓 얻은 후, 세션 사용을 할 때, 세션이 해제되는 걸 방지하기 위한 참조카운트! 
@@ -296,13 +295,13 @@ bool NetServer::AcceptThread_serv()
 		// 링버퍼 내부에 남아있는 거 처리
 		session->recvRingBuffer.ClearBuffer();
 		ZeroMemory(session->IP_str, sizeof(session->IP_str));
-		ZeroMemory(&session->m_stSendOverlapped, sizeof(OVERLAPPED));
-		ZeroMemory(&session->m_stRecvOverlapped, sizeof(OVERLAPPED));
+		ZeroMemory(&session->_stSendOverlapped, sizeof(OVERLAPPED));
+		ZeroMemory(&session->_stRecvOverlapped, sizeof(OVERLAPPED));
 
 		session->IP_num = 0;
 		session->PORT = 0;
 		
-		session->m_socketClient = clientSocket;
+		session->_socketClient = clientSocket;
 		wcscpy_s(session->IP_str, _countof(session->IP_str), szClientIP);
 		session->PORT = ntohs(clientAddr.sin_port);
 
@@ -311,7 +310,7 @@ bool NetServer::AcceptThread_serv()
 
 		// IOCP와 소켓 연결
 		// 세션 주소값이 키 값
-		if (CreateIoCompletionPort((HANDLE)clientSocket, IOCPHandle, (ULONG_PTR)session, 0) == NULL)
+		if (CreateIoCompletionPort((HANDLE)clientSocket, _iocpHandle, (ULONG_PTR)session, 0) == NULL)
 		{
 			int ciocpError = WSAGetLastError();
 
@@ -329,7 +328,7 @@ bool NetServer::AcceptThread_serv()
 		// ex) 더미 클라이언트 껐을 때, 세션은 다 정리됐는데 player가 남아있는 문제 발생
 		OnClientJoin(id);
 
-		InterlockedIncrement64(&sessionCnt);
+		InterlockedIncrement64(&_sessionCnt);
 
 		// 비동기 recv I/O 요청
 		RecvPost(session);
@@ -346,7 +345,7 @@ bool NetServer::AcceptThread_serv()
 }
 
 // Worker Thread
-bool NetServer::mWorkerThread_serv()
+bool NetServer::WorkerThread_Serv()
 {
 	DWORD threadID = GetCurrentThreadId();
 
@@ -367,7 +366,7 @@ bool NetServer::mWorkerThread_serv()
 
 		// GQCS call
 		// client가 send조차 하지않고 바로 disconnect 할 경우 -> WorkerThread에서 recv 0을 위한 GQCS가 깨어남
-		bSuccess = GetQueuedCompletionStatus(IOCPHandle, (LPDWORD)&cbTransferred, (PULONG_PTR)&pSession,
+		bSuccess = GetQueuedCompletionStatus(_iocpHandle, (LPDWORD)&cbTransferred, (PULONG_PTR)&pSession,
 			&pOverlapped, INFINITE);
 
 		// IOCP Error or TIMEOUT or PQCS로 직접 NULL 던짐
@@ -376,8 +375,8 @@ bool NetServer::mWorkerThread_serv()
 			int iocpError = WSAGetLastError();
 
 			// 모든 IOCP Worker Thread를 종료시키기 위한 PQCS를 호출함
-			PostQueuedCompletionStatus(IOCPHandle, 0, 0, 0);
-			logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"worker # iocp error %d", iocpError);
+			PostQueuedCompletionStatus(_iocpHandle, 0, 0, 0);
+			_logger->logger(dfLOG_LEVEL_ERROR, __LINE__, L"worker # iocp error %d", iocpError);
 
 			break;	
 		}
@@ -401,12 +400,12 @@ bool NetServer::mWorkerThread_serv()
 			continue;
 		}
 		// Recv Packet Handler
-		else if (pOverlapped == &pSession->m_stRecvOverlapped && cbTransferred > 0)
+		else if (pOverlapped == &pSession->_stRecvOverlapped && cbTransferred > 0)
 		{
 			completionOK = RecvProc(pSession, cbTransferred);
 		}
 		// Send Packet Handler
-		else if (pOverlapped == &pSession->m_stSendOverlapped && cbTransferred > 0)
+		else if (pOverlapped == &pSession->_stSendOverlapped && cbTransferred > 0)
 		{
 			completionOK = SendProc(pSession, cbTransferred);
 		}
@@ -423,42 +422,42 @@ bool NetServer::mWorkerThread_serv()
 }
 
 // 타임아웃 관리를 위한 스레드
-bool NetServer::TimeoutThread_serv()
+bool NetServer::TimeoutThread_Serv()
 {
 	// 2초마다 타임아웃 갱신 (2초 내외의 타임아웃 오차는 허용)
 	while (1)
 	{
 		// 서버의 현재 시간
 		// 세션들이 서버의 현재 시간을 기준으로 타임아웃 됐는지 판별하기 위해 필요
-		mServerTime = timeGetTime();
+		_serverTime = timeGetTime();
 
-		for (int i = 0; i < mMaxAcceptCount; i++)
+		for (int i = 0; i < _maxAcceptCount; i++)
 		{
 			// 이 사이에 다른 곳에서 재할당되어 다른 세션이 될 수도 있으니 미리 sessionID 셋팅
-			uint64_t sessionID = SessionArray[i].sessionID;
+			uint64_t sessionID = _sessionArray[i].sessionID;
 
 			// 이미 release 된 상태 skip
-			if ((InterlockedOr64((LONG64*)&SessionArray[i].ioRefCount, 0) & RELEASEMASKING) != 0) continue;
+			if ((InterlockedOr64((LONG64*)&_sessionArray[i].ioRefCount, 0) & RELEASEMASKING) != 0) continue;
 
 			// 아직 소켓 할당이 안 된 상태 skip
-			if (SessionArray[i].m_socketClient == INVALID_SOCKET) continue;
+			if (_sessionArray[i]._socketClient == INVALID_SOCKET) continue;
 
 			// 이미 disconnect 된 상태 skip
-			if (SessionArray[i].isDisconnected == true) continue;
+			if (_sessionArray[i].isDisconnected == true) continue;
 
 			// 재할당되어 다른 세션이 된 상태 skip
-			if (sessionID != SessionArray[i].sessionID) continue;
+			if (sessionID != _sessionArray[i].sessionID) continue;
 
 			// 세션에 부여된 타임아웃 예정 시간(Timer)이 현재 서버 시간보다 미래인 상태 (타임아웃까지 여유있음) skip
-			if (InterlockedOr((LONG*)&SessionArray[i].Timer, 0) >= mServerTime) continue;
+			if (InterlockedOr((LONG*)&_sessionArray[i].Timer, 0) >= _serverTime) continue;
 
 			// ----------------------------------------------------------------------
 			// 이곳에 진입한 세션들은 타임아웃 시켜줘야 함
 			OnTimeout(sessionID);		// Contents 서버에서 타임아웃 관련 logic 처리
 
 			// 타임아웃 예약 종료 건이라면 flag 다시 되돌려줌
-			if (SessionArray[i].sendDisconnFlag == true)
-				InterlockedExchange8((char*)&SessionArray[i].sendDisconnFlag, false);
+			if (_sessionArray[i].sendDisconnFlag == true)
+				InterlockedExchange8((char*)&_sessionArray[i].sendDisconnFlag, false);
 		}
 
 		Sleep(2000);
@@ -532,17 +531,11 @@ bool NetServer::RecvProc(stSESSION* pSession, long cbTransferred)
 			return false;
 		}
 
-		// Total Recv Message Count
-		InterlockedIncrement64((LONG64*)&recvMsgCount);
-
 		// Recv Message TPS
-		InterlockedIncrement64((LONG64*)&recvMsgTPS);
-
-		// Total Recv Bytes
-		InterlockedAdd64((LONG64*)&recvBytes, header.len);
+		InterlockedIncrement64((LONG64*)&_recvMsgTPS);
 
 		// Recv Bytes TPS
-		InterlockedAdd64((LONG64*)&recvBytesTPS, header.len);
+		InterlockedAdd64((LONG64*)&_recvBytesTPS, header.len);
 
 		// 컨텐츠 쪽 recv 처리
 		OnRecv(pSession->sessionID, packet);
@@ -573,17 +566,11 @@ bool NetServer::SendProc(stSESSION* pSession, long cbTransferred)
 		CPacket::Free(pSession->SendPackets[iSendCount]);
 	}
 
-	// Total Send Bytes
-	InterlockedAdd64((long long*)&sendBytes, totalSendBytes);
-
 	// Send Bytes TPS
-	InterlockedAdd64((long long*)&sendBytesTPS, totalSendBytes);
-
-	// Total Send Message Count
-	InterlockedAdd64((long long*)&sendMsgCount, pSession->sendPacketCount);
+	InterlockedAdd64((long long*)&_sendBytesTPS, totalSendBytes);
 
 	// Send Message TPS
-	InterlockedAdd64((long long*)&sendMsgTPS, pSession->sendPacketCount);
+	InterlockedAdd64((long long*)&_sendMsgTPS, pSession->sendPacketCount);
 
 	pSession->sendPacketCount = 0;
 
@@ -601,7 +588,7 @@ bool NetServer::SendProc(stSESSION* pSession, long cbTransferred)
 			{
 				// SendPost 작업을 하기 전까지 해당 Session이 살아 있어야 하므로 참조 카운트 증가
 				InterlockedIncrement64(&pSession->ioRefCount);
-				PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
+				PostQueuedCompletionStatus(_iocpHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
 			}
 		}
 	}
@@ -640,14 +627,13 @@ bool NetServer::RecvPost(stSESSION* pSession)
 	}
 
 	// recv overlapped I/O 구조체 reset
-	ZeroMemory(&pSession->m_stRecvOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&pSession->_stRecvOverlapped, sizeof(OVERLAPPED));
 
 	// recv
 	// ioCount : WSARecv 완료 통지가 WSARecv함수의 return보다 먼저 떨어질 수 있으므로 WSARecv 호출 전에 증가시켜야 함
 	InterlockedIncrement64(&pSession->ioRefCount);
-	int recvRet = WSARecv(pSession->m_socketClient, wsa, wsaCnt, NULL, &flags, &pSession->m_stRecvOverlapped, NULL);
-	InterlockedIncrement64(&recvCallCount);
-	InterlockedIncrement64(&recvCallTPS);
+	int recvRet = WSARecv(pSession->_socketClient, wsa, wsaCnt, NULL, &flags, &pSession->_stRecvOverlapped, NULL);
+	InterlockedIncrement64(&_recvCallTPS);
 
 	// 예외처리
 	if (recvRet == SOCKET_ERROR)
@@ -671,13 +657,11 @@ bool NetServer::RecvPost(stSESSION* pSession)
 		}
 		// Pending일 경우
 		else
-		{
-			InterlockedIncrement64(&recvPendingTPS);
-			
+		{			
 			// Pending 걸렸는데, 이 시점에 disconnect되면 이 때 남아있던 비동기 io 정리해줘야함
 			if (pSession->isDisconnected)
 			{
-				CancelIoEx((HANDLE)pSession->m_socketClient, &pSession->m_stRecvOverlapped);
+				CancelIoEx((HANDLE)pSession->_socketClient, &pSession->_stRecvOverlapped);
 			}
 
 		}
@@ -717,7 +701,7 @@ bool NetServer::SendPost(stSESSION* pSession)
 				if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
 				{
 					InterlockedIncrement64(&pSession->ioRefCount);
-					PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
+					PostQueuedCompletionStatus(_iocpHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
 				}
 			}
 		}
@@ -745,14 +729,13 @@ bool NetServer::SendPost(stSESSION* pSession)
 	pSession->sendPacketCount = deqIdx;		// 완료 통지 시, PacketPool에 반환할 패킷 갯수
 
 	// send overlapped I/O 구조체 reset
-	ZeroMemory(&pSession->m_stSendOverlapped, sizeof(OVERLAPPED));
+	ZeroMemory(&pSession->_stSendOverlapped, sizeof(OVERLAPPED));
 
 	// send
 	// ioCount : WSASend 완료 통지가 리턴보다 먼저 떨어질 수 있으므로 WSASend 호출 전에 증가시켜야 함
 	InterlockedIncrement64(&pSession->ioRefCount);
-	int sendRet = WSASend(pSession->m_socketClient, wsa, deqIdx, NULL, 0, &pSession->m_stSendOverlapped, NULL);
-	InterlockedIncrement64(&sendCallCount);
-	InterlockedIncrement64(&sendCallTPS);
+	int sendRet = WSASend(pSession->_socketClient, wsa, deqIdx, NULL, 0, &pSession->_stSendOverlapped, NULL);
+	InterlockedIncrement64(&_sendCallTPS);
 
 	// 예외처리
 	if (sendRet == SOCKET_ERROR)
@@ -775,8 +758,6 @@ bool NetServer::SendPost(stSESSION* pSession)
 
 			return false;
 		}
-		else
-			InterlockedIncrement64(&sendPendingTPS);
 	}
 
 	return true;
@@ -786,12 +767,12 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 {
 	// sessionID에서 index 찾은 후, 해당 Session 얻어옴
 	int index = GetSessionIndex(sessionID);
-	if (index < 0 || index >= mMaxAcceptCount)
+	if (index < 0 || index >= _maxAcceptCount)
 	{
 		return false;
 	}
 
-	stSESSION* pSession = &SessionArray[index];
+	stSESSION* pSession = &_sessionArray[index];
 
 	if (pSession == nullptr)
 	{
@@ -846,7 +827,7 @@ bool NetServer::SendPacket(uint64_t sessionID, CPacket* packet)
 		if (false == InterlockedExchange8((char*)&pSession->sendFlag, true))
 		{
 			InterlockedIncrement64(&pSession->ioRefCount);
-			PostQueuedCompletionStatus(IOCPHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
+			PostQueuedCompletionStatus(_iocpHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::SENDPOST);
 		}
 	}
 
@@ -872,10 +853,10 @@ void NetServer::ReleaseSession(stSESSION* pSession)
 
 	uint64_t sessionID = pSession->sessionID;
 	pSession->sessionID = -1;
-	SOCKET sock = pSession->m_socketClient;
+	SOCKET sock = pSession->_socketClient;
 
 	// 소켓 Invalid 처리하여 더이상 해당 소켓으로 I/O 못받게 함
-	pSession->m_socketClient = INVALID_SOCKET;
+	pSession->_socketClient = INVALID_SOCKET;
 
 	// recv는 더이상 받으면 안되므로 소켓 close
 	closesocket(sock);
@@ -900,26 +881,26 @@ void NetServer::ReleaseSession(stSESSION* pSession)
 	}
 
 	// index를 stack에 push (미사용 index로 관리)
-	AvailableIndexStack.Push(GetSessionIndex(sessionID));
+	_availableIndexStack.Push(GetSessionIndex(sessionID));
 
 	// 사용자 관련 리소스 해제 (호출 후에 해당 세션이 사용되면 안됨)
 	OnClientLeave(sessionID);
 
 	// 접속중인 client 수 차감
-	InterlockedDecrement64(&sessionCnt);
+	InterlockedDecrement64(&_sessionCnt);
 
 	// 접속 해제한 clinet 수 증가
-	InterlockedIncrement64(&releaseCount);
-	InterlockedIncrement64(&releaseTPS);
+	InterlockedIncrement64(&_releaseCount);
+	InterlockedIncrement64(&_releaseTPS);
 }
 
 bool NetServer::DisconnectSession(uint64_t sessionID)
 {
 	// sessionID에서 index 찾은 후, 해당 Session 얻어옴
 	int index = GetSessionIndex(sessionID);
-	if (index < 0 || index >= mMaxAcceptCount) return false;
+	if (index < 0 || index >= _maxAcceptCount) return false;
 
-	stSESSION* pSession = &SessionArray[index];
+	stSESSION* pSession = &_sessionArray[index];
 
 	if (pSession == nullptr) return false;
 
@@ -957,7 +938,7 @@ bool NetServer::DisconnectSession(uint64_t sessionID)
 	InterlockedExchange8((char*)&pSession->isDisconnected, true);
 
 	// 현재 진행 중이었던 IO 작업 모두 취소
-	CancelIoEx((HANDLE)pSession->m_socketClient, NULL);
+	CancelIoEx((HANDLE)pSession->_socketClient, NULL);
 
 	// Disconnect 함수에서 증가시킨 세션 참조 카운트 감소
 	if (0 == InterlockedDecrement64(&pSession->ioRefCount))
@@ -975,24 +956,24 @@ void NetServer::Stop()
 	// stop 함수 추후 구현 완료
 
 	// worker thread로 종료 PQCS 날김
-	for (int i = 0; i < mWorkerThreadCount; i++)
+	for (int i = 0; i < _workerThreadCount; i++)
 	{
-		PostQueuedCompletionStatus(IOCPHandle, 0, 0, 0);
+		PostQueuedCompletionStatus(_iocpHandle, 0, 0, 0);
 	}
 
 
-	WaitForMultipleObjects(mWorkerThreadCount, &mWorkerThreads[0], TRUE, INFINITE);
-	closesocket(ListenSocket);
-	WaitForSingleObject(mAcceptThread, INFINITE);
+	WaitForMultipleObjects(_workerThreadCount, &_workerThreads[0], TRUE, INFINITE);
+	closesocket(_listenSocket);
+	WaitForSingleObject(_acceptThread, INFINITE);
 	
-	CloseHandle(IOCPHandle);
-	CloseHandle(mAcceptThread);
+	CloseHandle(_iocpHandle);
+	CloseHandle(_acceptThread);
 	
-	for (int i = 0; i < mWorkerThreadCount; i++)
-		CloseHandle(mWorkerThreads[i]);
+	for (int i = 0; i < _workerThreadCount; i++)
+		CloseHandle(_workerThreads[i]);
 
-	if (SessionArray != nullptr)
-		delete[] SessionArray;
+	if (_sessionArray != nullptr)
+		delete[] _sessionArray;
 
 	WSACleanup();
 }

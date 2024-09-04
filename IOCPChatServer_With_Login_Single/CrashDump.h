@@ -28,7 +28,7 @@ namespace lib
 			_CrtSetReportMode(_CRT_ASSERT, 0);
 			_CrtSetReportMode(_CRT_ERROR, 0);
 
-			_CrtSetReportHook(_custom_Report_hook);
+			_CrtSetReportHook(_custo_Report_hook);
 
 			_set_purecall_handler(myPurecallHandler);
 
@@ -123,7 +123,7 @@ namespace lib
 			Crash();
 		}
 
-		static int _custom_Report_hook(int ireposttype, char* message, int* returnvalue)
+		static int _custo_Report_hook(int ireposttype, char* message, int* returnvalue)
 		{
 			Crash();
 			return true;

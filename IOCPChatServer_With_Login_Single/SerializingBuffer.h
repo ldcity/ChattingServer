@@ -46,9 +46,9 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	inline void	Clear(void)
 	{
-		m_iDataSize = 0;
+		_iDataSize = 0;
 
-		readPos = writePos = m_chpBuffer + DEFAULT_HEADER_SIZE;
+		readPos = writePos = _chpBuffer + DEFAULT_HEADER_SIZE;
 	}
 
 	//////////////////////////////////////////////////////////////////////////
@@ -59,7 +59,7 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	inline char* GetBufferPtr(void)
 	{
-		return m_chpBuffer;
+		return _chpBuffer;
 	}
 
 	//////////////////////////////////////////////////////////////////////////
@@ -73,11 +73,11 @@ public:
 	{
 		if (iSize < 0)
 			return -1;
-		if (m_iBufferSize - m_iDataSize - DEFAULT_HEADER_SIZE < iSize)
+		if (_iBufferSize - _iDataSize - DEFAULT_HEADER_SIZE < iSize)
 			return 0;
 
 		writePos += iSize;
-		m_iDataSize += iSize;
+		_iDataSize += iSize;
 
 		return iSize;
 	}
@@ -86,11 +86,11 @@ public:
 	{
 		if (iSize < 0)
 			return -1;
-		if (m_iDataSize < iSize)
+		if (_iDataSize < iSize)
 			return 0;
 
 		readPos += iSize;
-		m_iDataSize -= iSize;
+		_iDataSize -= iSize;
 
 		if (readPos == writePos) Clear();
 
@@ -108,7 +108,7 @@ public:
 	inline CPacket& operator << (unsigned char byValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(unsigned char))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(unsigned char))
 			Resize("operator << (unsigned char) ", sizeof(unsigned char));
 
 		memcpy_s(writePos, sizeof(unsigned char), &byValue, sizeof(unsigned char));
@@ -120,7 +120,7 @@ public:
 	inline CPacket& operator << (char chValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(char))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(char))
 			Resize("operator << (char) ", sizeof(char));
 
 		memcpy_s(writePos, sizeof(char), &chValue, sizeof(char));
@@ -132,7 +132,7 @@ public:
 	inline CPacket& operator << (short shValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(short))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(short))
 			Resize("operator << (short) ", sizeof(short));
 
 		memcpy_s(writePos, sizeof(short), &shValue, sizeof(short));
@@ -144,7 +144,7 @@ public:
 	inline CPacket& operator << (unsigned short wValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(unsigned short))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(unsigned short))
 			Resize("operator << (short) ", sizeof(unsigned short));
 
 		memcpy_s(writePos, sizeof(unsigned short), &wValue, sizeof(unsigned short));
@@ -156,7 +156,7 @@ public:
 	inline CPacket& operator << (int iValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(int))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(int))
 			Resize("operator << (int) ", sizeof(int));
 
 		memcpy_s(writePos, sizeof(int), &iValue, sizeof(int));
@@ -168,7 +168,7 @@ public:
 	inline CPacket& operator << (unsigned long lValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(unsigned long))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(unsigned long))
 			Resize("operator << (long) ", sizeof(long));
 
 		memcpy_s(writePos, sizeof(unsigned long), &lValue, sizeof(unsigned long));
@@ -180,7 +180,7 @@ public:
 	inline CPacket& operator << (float fValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(float))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(float))
 			Resize("operator << (float) ", sizeof(float));
 
 		memcpy_s(writePos, sizeof(float), &fValue, sizeof(float));
@@ -192,7 +192,7 @@ public:
 	inline CPacket& operator << (__int64 iValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(__int64))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(__int64))
 			Resize("operator << (__int64) ", sizeof(__int64));
 
 		memcpy_s(writePos, sizeof(__int64), &iValue, sizeof(__int64));
@@ -204,7 +204,7 @@ public:
 	inline CPacket& operator << (double dValue)
 	{
 		// 남은 사이즈보다 넣을 변수 크기가 더 크면 바로 return
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < sizeof(double))
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < sizeof(double))
 			Resize("operator << (double) ", sizeof(double));
 
 		memcpy_s(writePos, sizeof(double), &dValue, sizeof(double));
@@ -218,7 +218,7 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	inline CPacket& operator >> (unsigned char& byValue)
 	{
-		if (m_iDataSize < sizeof(unsigned char))
+		if (_iDataSize < sizeof(unsigned char))
 			throw SerializingBufferException("Failed to read float", "operator >> (unsigned char)", __LINE__, this->GetBufferPtr());
 
 
@@ -232,7 +232,7 @@ public:
 
 	inline CPacket& operator >> (char& chValue)
 	{
-		if (m_iDataSize < sizeof(char))
+		if (_iDataSize < sizeof(char))
 			throw SerializingBufferException("Failed to read float", "operator >> (char)", __LINE__, this->GetBufferPtr());
 
 
@@ -246,7 +246,7 @@ public:
 
 	inline CPacket& operator >> (short& shValue)
 	{
-		if (m_iDataSize < sizeof(short))
+		if (_iDataSize < sizeof(short))
 			throw SerializingBufferException("Failed to read float", "operator >> (short)", __LINE__, this->GetBufferPtr());
 
 		memcpy_s(&shValue, sizeof(short), readPos, sizeof(short));
@@ -259,7 +259,7 @@ public:
 
 	inline CPacket& operator >> (unsigned short& wValue)
 	{
-		if (m_iDataSize < sizeof(unsigned short))
+		if (_iDataSize < sizeof(unsigned short))
 			throw SerializingBufferException("Failed to read float", "operator >> (unsigned short)", __LINE__, this->GetBufferPtr());
 
 
@@ -273,7 +273,7 @@ public:
 
 	inline CPacket& operator >> (int& iValue)
 	{
-		if (m_iDataSize < sizeof(int))
+		if (_iDataSize < sizeof(int))
 			throw SerializingBufferException("Failed to read float", "operator >> (int)", __LINE__, this->GetBufferPtr());
 
 		memcpy_s(&iValue, sizeof(int), readPos, sizeof(int));
@@ -286,7 +286,7 @@ public:
 
 	inline CPacket& operator >> (unsigned long& dwValue)
 	{
-		if (m_iDataSize < sizeof(unsigned long))
+		if (_iDataSize < sizeof(unsigned long))
 			throw SerializingBufferException("Failed to read float", "operator >> (unsigned long)", __LINE__, this->GetBufferPtr());
 
 
@@ -300,7 +300,7 @@ public:
 
 	inline CPacket& operator >> (float& fValue)
 	{
-		if (m_iDataSize < sizeof(float))
+		if (_iDataSize < sizeof(float))
 			throw SerializingBufferException("Failed to read float", "operator >> (float)", __LINE__, this->GetBufferPtr());
 
 		memcpy_s(&fValue, sizeof(float), readPos, sizeof(float));
@@ -313,7 +313,7 @@ public:
 
 	inline CPacket& operator >> (__int64& iValue)
 	{
-		if (m_iDataSize < sizeof(__int64))
+		if (_iDataSize < sizeof(__int64))
 			throw SerializingBufferException("Failed to read float", "operator >> (__int64)", __LINE__, this->GetBufferPtr());
 
 		memcpy_s(&iValue, sizeof(__int64), readPos, sizeof(__int64));
@@ -326,7 +326,7 @@ public:
 
 	inline CPacket& operator >> (double& dValue)
 	{
-		if (m_iDataSize < sizeof(double))
+		if (_iDataSize < sizeof(double))
 			throw SerializingBufferException("Failed to read float", "operator >> (double)", __LINE__, this->GetBufferPtr());
 
 		memcpy_s(&dValue, sizeof(double), readPos, sizeof(double));
@@ -345,17 +345,17 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	inline int		Peek(char* chpDest, int iSize)
 	{
-		if (m_iDataSize < iSize)
+		if (_iDataSize < iSize)
 			throw SerializingBufferException("Failed to read float", "GetData", __LINE__, this->GetBufferPtr());
 
-		memcpy_s(chpDest, iSize, m_chpBuffer, iSize);
+		memcpy_s(chpDest, iSize, _chpBuffer, iSize);
 
 		return iSize;
 	}
 
 	inline int		LanHeaderPeek(char* chpDest, int iSize)
 	{
-		if (m_iDataSize < iSize)
+		if (_iDataSize < iSize)
 			throw SerializingBufferException("Failed to read float", "GetData", __LINE__, this->GetBufferPtr());
 
 		memcpy_s(chpDest, iSize, lanHeaderPtr, iSize);
@@ -365,7 +365,7 @@ public:
 
 	inline int		LanPeek(char* chpDest, int iSize)
 	{
-		if (m_iDataSize < iSize)
+		if (_iDataSize < iSize)
 			throw SerializingBufferException("Failed to read float", "GetData", __LINE__, this->GetBufferPtr());
 
 		memcpy_s(chpDest, iSize, readPos, iSize);
@@ -381,7 +381,7 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	inline int		GetData(char* chpDest, int iSize)
 	{
-		if (m_iDataSize < iSize)
+		if (_iDataSize < iSize)
 			throw SerializingBufferException("Failed to read float", "GetData", __LINE__, this->GetBufferPtr());
 
 		memcpy_s(chpDest, iSize, readPos, iSize);
@@ -398,10 +398,10 @@ public:
 	//////////////////////////////////////////////////////////////////////////
 	inline int		PutData(char* chpSrc, int iSrcSize)
 	{
-		if (m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize < iSrcSize)
+		if (_iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize < iSrcSize)
 			Resize("PutData", iSrcSize);
 
-		memcpy_s(writePos, m_iBufferSize - DEFAULT_HEADER_SIZE - m_iDataSize, chpSrc, iSrcSize);
+		memcpy_s(writePos, _iBufferSize - DEFAULT_HEADER_SIZE - _iDataSize, chpSrc, iSrcSize);
 		MoveWritePos(iSrcSize);
 
 		return iSrcSize;
@@ -422,7 +422,7 @@ public:
 	// Net 헤더 포인터
 	inline char* GetNetBufferPtr(void)
 	{
-		return m_chpBuffer;
+		return _chpBuffer;
 	}
 
 	// Lan 헤더 포인터
@@ -434,19 +434,19 @@ public:
 	// 실제 페이로드 데이터 크기
 	inline int GetDataSize()
 	{
-		return m_iDataSize;
+		return _iDataSize;
 	}
 
 	// 헤더 포함 페이로드 데이터 크기 (Net)
 	inline int GetNetDataSize()
 	{
-		return m_iDataSize + WAN_HEADER_SIZE;
+		return _iDataSize + WAN_HEADER_SIZE;
 	}
 
 	// 헤더 포함 페이로드 데이터 크기 (Lan)
 	inline int GetLanDataSize()
 	{
-		return m_iDataSize + LAN_HEADER_SIZE;
+		return _iDataSize + LAN_HEADER_SIZE;
 	}
 
 	// default 헤더 사이즈
@@ -501,17 +501,17 @@ public:
 
 	inline static void SetCode(unsigned char code)
 	{
-		m_code = code;
+		_code = code;
 	}
 
 	inline static unsigned char GetCode()
 	{
-		return m_code;
+		return _code;
 	}
 
 	inline static void SetKey(unsigned char key)
 	{
-		m_key = key;
+		_key = key;
 	}
 
 	inline void addRefCnt()
@@ -553,13 +553,13 @@ private:
 	int alignas(64) ref_cnt;
 
 	// 직렬화 버퍼 크기
-	int	m_iBufferSize;
+	int	_iBufferSize;
 	
 	// 현재 버퍼에 사용중인 사이즈 (payload)
-	int	m_iDataSize;
+	int	_iDataSize;
 
 	// 직렬화 버퍼 할당 첫 포인터
-	char* m_chpBuffer;
+	char* _chpBuffer;
 
 	// lan header ptr
 	char* lanHeaderPtr;
@@ -573,9 +573,9 @@ private:
 	// 인코딩 여부 확인 flag
 	alignas(64) bool isEncoded;
 
-	inline static unsigned char m_code;
+	inline static unsigned char _code;
 
-	inline static unsigned char m_key;
+	inline static unsigned char _key;
 };
 
 #endif

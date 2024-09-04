@@ -45,7 +45,7 @@ class TLSObjectPool
 		long maxCount;							// 버킷 내 존재할 수 있는 최대 노드 개수
 		long allocCount;						// 버킷 내 노드 할당 개수
 		long freeCount;							// 버킷 내 노드 반환 개수
-		bool m_bPlacementNew;
+		bool _bPlacementNew;
 		LockFreeStack<Node*>* _rootPool;
 
 	public:
@@ -53,7 +53,7 @@ class TLSObjectPool
 		// 해당 개수만큼의 버킷 내 노드를 풀에서 갖고옴
 		Bucket(int iNodeNum, bool _placementNew, LockFreeStack<Node*>* rootPool) :
 			maxCount(iNodeNum), size(iNodeNum), allocCount(0), freeCount(0), pTop(nullptr),
-			m_bPlacementNew(_placementNew), _rootPool(rootPool)
+			_bPlacementNew(_placementNew), _rootPool(rootPool)
 		{
 			if (size != 0)
 			{
@@ -95,7 +95,7 @@ class TLSObjectPool
 			//freeCount = 0;
 
 			// true면 실제로 사용자가 Alloc함수 호출할 때마다 생성자 호출해줘야 하므로 지금은 X
-		/*	if (m_bPlacementNew)
+		/*	if (_bPlacementNew)
 			{*/
 			for (int i = 0; i < maxCount; i++)
 			{
@@ -144,7 +144,7 @@ class TLSObjectPool
 					pTop = pTop->next;
 
 					// 소멸자 호출해야하나 확인해야함
-					if (m_bPlacementNew)
+					if (_bPlacementNew)
 						//free(node);
 						_aligned_free(node);
 					else
@@ -167,17 +167,17 @@ private:
 	alignas(64) __int64 objectAllocCount;				// 사용자에게 할당해준 노드 개수
 	alignas(64) __int64 objectFreeCount;				// 사용자가 반환한 노드 개수
 	alignas(64) __int64 objectUseCount;					// 현재 사용하고 있는 노드 개수
-	alignas(64) __int64 m_iCapacity;					// TLS 풀 내부 전체 용량
+	alignas(64) __int64 _iCapacity;					// TLS 풀 내부 전체 용량
 	alignas(64) DWORD tlsIndex;							// tls Index
 
 	int defaultNodeCount;								// 처음 지정한 노드 개수
 	int defaultBucketCount;								// 처음 지정한 버킷 개수
-	bool m_bPlacementNew;								// placement new 작동 여부
+	bool _bPlacementNew;								// placement new 작동 여부
 
 	LockFreeStack<Node*>* rootPool;						// root Pool
 public:
 	TLSObjectPool(int iNodeNum = NODEMAX, bool bPlacementNew = false, int iBucketNum = BUCKETMAX)
-		: m_bPlacementNew(bPlacementNew), m_iCapacity(0),
+		: _bPlacementNew(bPlacementNew), _iCapacity(0),
 		objectAllocCount(0), objectFreeCount(0), defaultNodeCount(iNodeNum), defaultBucketCount(iBucketNum)
 	{
 		// 버킷 개수만큼 스택프리리스트 노드 생성
@@ -214,13 +214,13 @@ public:
 			{
 				cur = top;
 				top = cur->next;
-				if (!m_bPlacementNew)
+				if (!_bPlacementNew)
 					cur->object.~DATA();
 
 				free(cur);
 			}
 
-			/*if (m_bPlacementNew)
+			/*if (_bPlacementNew)
 			{
 
 			}
@@ -243,7 +243,7 @@ public:
 
 	inline void Init()
 	{
-		if (m_bPlacementNew)
+		if (_bPlacementNew)
 		{
 			for (int i = 0; i < defaultBucketCount; i++)
 			{
@@ -279,10 +279,10 @@ public:
 			}
 		}
 
-		m_iCapacity = defaultBucketCount * defaultNodeCount;
+		_iCapacity = defaultBucketCount * defaultNodeCount;
 	}
 
-	__int64 GetCapacity() { return m_iCapacity; }
+	__int64 GetCapacity() { return _iCapacity; }
 	__int64 GetObjectAllocCount() { return objectAllocCount; }
 	__int64 GetObjectFreeCount() { return objectFreeCount; }
 	__int64 GetObjectUseCount() { return objectUseCount; }
@@ -297,13 +297,13 @@ public:
 		{
 			buckets = new TLS_Bucket;
 
-			buckets->bucket1 = new Bucket(defaultNodeCount, m_bPlacementNew, rootPool);
-			buckets->bucket2 = new Bucket(0, m_bPlacementNew, rootPool);
+			buckets->bucket1 = new Bucket(defaultNodeCount, _bPlacementNew, rootPool);
+			buckets->bucket2 = new Bucket(0, _bPlacementNew, rootPool);
 
 			TlsSetValue(tlsIndex, buckets);
 
 			//// 한 스레드 당 버킷 2개 갖고 있으므로 할당 용량도 2배
-			//InterlockedAdd64(&m_iCapacity, defaultNodeCount * 2);
+			//InterlockedAdd64(&_iCapacity, defaultNodeCount * 2);
 		}
 
 		// 두번째 버킷 먼저 확인
@@ -341,7 +341,7 @@ public:
 		DATA* object = bucket->Alloc();
 
 		// 할당할 때마다 생성자 호출
-		if (m_bPlacementNew)
+		if (_bPlacementNew)
 			new(object)DATA;
 
 		InterlockedIncrement64(&objectAllocCount);
@@ -359,13 +359,13 @@ public:
 		{
 			buckets = new TLS_Bucket;
 
-			buckets->bucket1 = new Bucket(defaultNodeCount, m_bPlacementNew, rootPool);
-			buckets->bucket2 = new Bucket(0, m_bPlacementNew, rootPool);
+			buckets->bucket1 = new Bucket(defaultNodeCount, _bPlacementNew, rootPool);
+			buckets->bucket2 = new Bucket(0, _bPlacementNew, rootPool);
 
 			TlsSetValue(tlsIndex, buckets);
 
 			//// 한 스레드 당 버킷 2개 갖고 있으므로 할당 용량도 2배
-			//InterlockedAdd64(&m_iCapacity, defaultNodeCount * 2);
+			//InterlockedAdd64(&_iCapacity, defaultNodeCount * 2);
 
 		}
 
@@ -391,7 +391,7 @@ public:
 		bucket->Free(pData);
 
 		// 반환할 때마다 소멸자 호출
-		if (m_bPlacementNew)
+		if (_bPlacementNew)
 			pData->~DATA();
 
 		InterlockedIncrement64(&objectFreeCount);

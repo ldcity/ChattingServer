@@ -7,7 +7,7 @@ ChatServer server;
 
 int main()
 {
-	server.ChatServerStart();
+	server.ChatServer_Start();
 
 
 

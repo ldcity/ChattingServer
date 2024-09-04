@@ -48,10 +48,10 @@ template <class DATA>
 class ObjectLockFreeStackFreeList : ObjectFreeListBase<DATA>
 {
 private:
-	alignas(64) uint64_t m_iUseCount;								// 사용중인 블럭 개수.
-	alignas(64) uint64_t m_iAllocCnt;
-	alignas(64) uint64_t m_iFreeCnt;
-	alignas(64) uint64_t m_iCapacity;								// 오브젝트 풀 내부 전체 개수
+	alignas(64) uint64_t _iUseCount;								// 사용중인 블럭 개수.
+	alignas(64) uint64_t _iAllocCnt;
+	alignas(64) uint64_t _iFreeCnt;
+	alignas(64) uint64_t _iCapacity;								// 오브젝트 풀 내부 전체 개수
 
 	// 객체 할당에 사용되는 노드
 	template <class DATA>
@@ -64,7 +64,7 @@ private:
 	// 스택 방식으로 반환된 (미사용) 오브젝트 블럭을 관리.(Top)
 	st_MEMORY_BLOCK_NODE<DATA>* _pFreeBlockNode;
 
-	bool m_bPlacementNew;
+	bool _bPlacementNew;
 
 public:
 	//////////////////////////////////////////////////////////////////////////
@@ -100,7 +100,7 @@ public:
 	// Parameters: 없음.
 	// Return: (int) 메모리 풀 내부 전체 개수
 	//////////////////////////////////////////////////////////////////////////
-	uint64_t		GetCapacityCount(void) { return m_iCapacity; }
+	uint64_t		GetCapacityCount(void) { return _iCapacity; }
 
 	//////////////////////////////////////////////////////////////////////////
 	// 현재 사용중인 블럭 개수를 얻는다.
@@ -108,11 +108,11 @@ public:
 	// Parameters: 없음.
 	// Return: (int) 사용중인 블럭 개수.
 	//////////////////////////////////////////////////////////////////////////
-	uint64_t		GetUseCount(void) { return m_iUseCount; }
+	uint64_t		GetUseCount(void) { return _iUseCount; }
 
-	uint64_t		GetAllocCount(void) { return m_iAllocCnt; }
+	uint64_t		GetAllocCount(void) { return _iAllocCnt; }
 
-	uint64_t		GetFreeCount(void) { return m_iFreeCnt; }
+	uint64_t		GetFreeCount(void) { return _iFreeCnt; }
 
 	// unique pointer
 	inline st_MEMORY_BLOCK_NODE<DATA>* GetUniqu64ePointer(st_MEMORY_BLOCK_NODE<DATA>* pointer, uint64_t iCount)
@@ -129,7 +129,7 @@ public:
 
 template <class DATA>
 ObjectLockFreeStackFreeList<DATA>::ObjectLockFreeStackFreeList(int iBlockNum, bool bPlacementNew)
-	: _pFreeBlockNode(nullptr), m_bPlacementNew(bPlacementNew), m_iCapacity(iBlockNum), m_iUseCount(0), m_iAllocCnt(0), m_iFreeCnt(0)
+	: _pFreeBlockNode(nullptr), _bPlacementNew(bPlacementNew), _iCapacity(iBlockNum), _iUseCount(0), _iAllocCnt(0), _iFreeCnt(0)
 {
 	// x64 모델에서 사용할 수 있는 메모리 대역이 변경됐는지 확인
 	SYSTEM_INFO si;
@@ -142,11 +142,11 @@ ObjectLockFreeStackFreeList<DATA>::ObjectLockFreeStackFreeList(int iBlockNum, bo
 	}
 
 	// 완전 프리리스트면 생성자에서 아무것도 안 함
-	if (m_iCapacity == 0) return;
+	if (_iCapacity == 0) return;
 
 	st_MEMORY_BLOCK_NODE<DATA>* pFreeBlockNode = nullptr;
 
-	for (int i = 0; i < m_iCapacity; i++)
+	for (int i = 0; i < _iCapacity; i++)
 	{
 		// 새 노드 생성
 		st_MEMORY_BLOCK_NODE<DATA>* memoryBlock = (st_MEMORY_BLOCK_NODE<DATA>*)_aligned_malloc(sizeof(st_MEMORY_BLOCK_NODE<DATA>), alignof(st_MEMORY_BLOCK_NODE<DATA>));
@@ -158,7 +158,7 @@ ObjectLockFreeStackFreeList<DATA>::ObjectLockFreeStackFreeList(int iBlockNum, bo
 		pFreeBlockNode = memoryBlock;
 
 		// placement new 가 false 면 객체 생성(처음에 노드 생성할때만 생성자 호출) - 그 이후에는 안함!
-		if (!m_bPlacementNew)
+		if (!_bPlacementNew)
 			new(&memoryBlock->data)DATA;
 	}
 
@@ -172,7 +172,7 @@ ObjectLockFreeStackFreeList<DATA>::~ObjectLockFreeStackFreeList()
 	{
 		st_MEMORY_BLOCK_NODE<DATA>* curNode = Get64Pointer(_pFreeBlockNode);
 
-		if (!m_bPlacementNew)
+		if (!_bPlacementNew)
 		{
 			curNode->data.~DATA();
 		}
@@ -217,7 +217,7 @@ DATA* ObjectLockFreeStackFreeList<DATA>::Alloc()
 			pOldRealNode->next = nullptr;
 
 			// 전체 블럭 개수 증가
-			InterlockedIncrement64((LONG64*)&m_iCapacity);
+			InterlockedIncrement64((LONG64*)&_iCapacity);
 
 			break;
 		}
@@ -236,15 +236,15 @@ DATA* ObjectLockFreeStackFreeList<DATA>::Alloc()
 	DATA* object = &pOldRealNode->data;
 
 	// 새 블럭 생성이므로 생성자 호출
-	if (m_bPlacementNew)
+	if (_bPlacementNew)
 	{
 		new(object) DATA;
 	}
 
-	InterlockedIncrement64((LONG64*)&m_iAllocCnt);
+	InterlockedIncrement64((LONG64*)&_iAllocCnt);
 
 	// 사용중인 블럭 개수 증가
-	InterlockedIncrement64((LONG64*)&m_iUseCount);
+	InterlockedIncrement64((LONG64*)&_iUseCount);
 
 	return object;
 }
@@ -261,7 +261,7 @@ bool ObjectLockFreeStackFreeList<DATA>::Free(DATA* pData)
 	st_MEMORY_BLOCK_NODE<DATA>* realTemp = (st_MEMORY_BLOCK_NODE<DATA>*)((char*)pData);
 
 	// 사용 중인 블럭이 없어서 더이상 해제할 블럭이 없을 경우
-	if (m_iUseCount == 0)
+	if (_iUseCount == 0)
 	{
 		wprintf(L"Free Failed.\n");
 		CRASH();
@@ -297,13 +297,13 @@ bool ObjectLockFreeStackFreeList<DATA>::Free(DATA* pData)
 
 	// 소멸자 호출 - placement new가 true이면 객체 반환할 때 소멸자 호출시켜야 함
 	// CAS 작업이 성공하여 free node를 push 완료하고나서 소멸자 호출해야함 (oldNode의 소멸자 호출)
-	if (m_bPlacementNew)
+	if (_bPlacementNew)
 	{
 		realTemp->data.~DATA();
 	}
 
-	InterlockedIncrement64((LONG64*)&m_iFreeCnt);
-	InterlockedDecrement64((LONG64*)&m_iUseCount);
+	InterlockedIncrement64((LONG64*)&_iFreeCnt);
+	InterlockedDecrement64((LONG64*)&_iUseCount);
 
 	return true;
 }

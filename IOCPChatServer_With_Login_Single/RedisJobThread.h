@@ -30,43 +30,43 @@ private:
 		CPacket* packet;
 	};
 
-	TLSObjectPool<Job> mJobPool = TLSObjectPool<Job>(100);
-	LockFreeQueue<Job*> mJobQ = LockFreeQueue<Job*>(200);
+	TLSObjectPool<Job> _jobPool = TLSObjectPool<Job>(100);
+	LockFreeQueue<Job*> _jobQ = LockFreeQueue<Job*>(200);
 
-	CRedis* mRedis;		// Redis Connector
+	CRedis* _redis;		// Redis Connector
 
-	wchar_t redisIP[20];
-	int redisPort;
+	wchar_t _redisIP[20];
+	int _redisPort;
 
-	ChatServer* chatServer;
+	ChatServer* _chatServer;
 
 	friend class ChatServer;
 
 public:
-	RedisWorkerThread(ChatServer* _chatServer, const wchar_t* ip, const int port) :
-		chatServer(_chatServer), mRedis(nullptr), redisPort(port)
+	RedisWorkerThread(ChatServer* chatServer, const wchar_t* ip, const int port) :
+		_chatServer(chatServer), _redis(nullptr), _redisPort(port)
 	{
-		wmemcpy_s(redisIP, 20, ip, 20);
+		wmemcpy_s(_redisIP, 20, ip, 20);
 
-		mRedis = new CRedis;
+		_redis = new CRedis;
 	}
 
 	~RedisWorkerThread()
 	{
-		if (mRedis)
-			delete mRedis;
+		if (_redis)
+			delete _redis;
 	}
 
 	void EnqueueJob(WORD type, uint64_t sessionID, INT64 accountNo, std::string sessionKey, CPacket* packet)
 	{
-		Job* job = mJobPool.Alloc();
+		Job* job = _jobPool.Alloc();
 		job->type = type;
 		job->sessionID = sessionID;
 		job->accountNo = accountNo;
 		job->sessionKey = sessionKey;
 		job->packet = packet;
 
-		mJobQ.Enqueue(job);
+		_jobQ.Enqueue(job);
 
 		SignalEvent();
 	}

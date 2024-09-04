@@ -57,12 +57,12 @@ namespace ldcity
 	private:
 		// 총 노드 정보 - bool이 false = 소멸자 호출 안함, true = 소멸자 호출함
 		std::map<st_MEMORY_BLOCK_NODE<DATA>*, bool> memoryBlocks;
-		bool m_bPlacementNew;
-		unsigned int m_type;							// 오브젝트 풀 타입
-		long m_iCapacity;								// 오브젝트 풀 내부 전체 개수
-		long m_iUseCount;								// 사용중인 블럭 개수.
-		long m_iAllocCnt;
-		long m_iFreeCnt;
+		bool _bPlacementNew;
+		unsigned int _type;							// 오브젝트 풀 타입
+		long _iCapacity;								// 오브젝트 풀 내부 전체 개수
+		long _iUseCount;								// 사용중인 블럭 개수.
+		long _iAllocCnt;
+		long _iFreeCnt;
 		CRITICAL_SECTION poolLock;
 	public:
 		// 스택 방식으로 반환된 (미사용) 오브젝트 블럭을 관리.(Top)
@@ -114,7 +114,7 @@ namespace ldcity
 		// Parameters: 없음.
 		// Return: (int) 메모리 풀 내부 전체 개수
 		//////////////////////////////////////////////////////////////////////////
-		int		GetCapacityCount(void) { return m_iCapacity; }
+		int		GetCapacityCount(void) { return _iCapacity; }
 
 		//////////////////////////////////////////////////////////////////////////
 		// 현재 사용중인 블럭 개수를 얻는다.
@@ -122,38 +122,38 @@ namespace ldcity
 		// Parameters: 없음.
 		// Return: (int) 사용중인 블럭 개수.
 		//////////////////////////////////////////////////////////////////////////
-		long		GetUseCount(void) { return m_iUseCount; }
+		long		GetUseCount(void) { return _iUseCount; }
 
-		long		GetAllocCount(void) { return m_iAllocCnt; }
+		long		GetAllocCount(void) { return _iAllocCnt; }
 
-		long		GetFreeCount(void) { return m_iFreeCnt; }
+		long		GetFreeCount(void) { return _iFreeCnt; }
 
 
 
 		void	SetCapacityCount(long value)
 		{
-			InterlockedExchange(&m_iCapacity, value);
+			InterlockedExchange(&_iCapacity, value);
 		}
 
 		void	SetUseCount(long value)
 		{
-			InterlockedExchange(&m_iUseCount, value);
+			InterlockedExchange(&_iUseCount, value);
 		}
 
 		void	SetAllocCount(long value)
 		{
-			InterlockedExchange(&m_iAllocCnt, value);
+			InterlockedExchange(&_iAllocCnt, value);
 		}
 
 		void	SetFreeCount(long value)
 		{
-			InterlockedExchange(&m_iFreeCnt, value);
+			InterlockedExchange(&_iFreeCnt, value);
 		}
 	};
 
 	template <class DATA>
 	ObjectFreeList<DATA>::ObjectFreeList(int iBlockNum, bool bPlacementNew)
-		: _pFreeBlockNode(nullptr), m_bPlacementNew(bPlacementNew), m_iCapacity(iBlockNum), m_iUseCount(0)
+		: _pFreeBlockNode(nullptr), _bPlacementNew(bPlacementNew), _iCapacity(iBlockNum), _iUseCount(0)
 	{
 		InitializeCriticalSection(&poolLock);
 
@@ -161,7 +161,7 @@ namespace ldcity
 		PoolType();
 
 		// 완전 프리리스트면 생성자에서 아무것도 안 함
-		if (m_iCapacity == 0) return;
+		if (_iCapacity == 0) return;
 
 		// 초기에 메모리 풀처럼 쓰게 메모리 덩어리만 할당 
 		char* memoryBlock = (char*)malloc(sizeof(st_MEMORY_BLOCK_NODE<DATA>));
@@ -173,11 +173,11 @@ namespace ldcity
 		_pFreeBlockNode = (st_MEMORY_BLOCK_NODE<DATA>*)(memoryBlock);
 		_pFreeBlockNode->underflow = 0xfdfdfdfd;
 		_pFreeBlockNode->overflow = 0xfdfdfdfd;
-		_pFreeBlockNode->type = m_type;
+		_pFreeBlockNode->type = _type;
 		_pFreeBlockNode->next = nullptr;
 
 		// placement new 가 false 면 객체 생성(처음에 노드 생성할때만 생성자 호출) - 그 이후에는 안함!
-		if (!m_bPlacementNew)
+		if (!_bPlacementNew)
 			new(&_pFreeBlockNode->data)DATA;
 
 		// 리스트 삭제를 위해 노드 정보들 모두 저장 - false = 소멸자 호출 안한 주소값
@@ -185,7 +185,7 @@ namespace ldcity
 
 		st_MEMORY_BLOCK_NODE<DATA>* temp = _pFreeBlockNode;
 
-		for (int i = 0; i < m_iCapacity - 1; i++)
+		for (int i = 0; i < _iCapacity - 1; i++)
 		{
 			// 새 노드 생성
 			char* memoryBlock = (char*)malloc(sizeof(st_MEMORY_BLOCK_NODE<DATA>));
@@ -194,12 +194,12 @@ namespace ldcity
 			st_MEMORY_BLOCK_NODE<DATA>* newNode = (st_MEMORY_BLOCK_NODE<DATA>*)(memoryBlock);
 			newNode->underflow = 0xfdfdfdfd;
 			newNode->overflow = 0xfdfdfdfd;
-			newNode->type = m_type;
+			newNode->type = _type;
 			newNode->next = _pFreeBlockNode;
 			_pFreeBlockNode = newNode;
 
 			// placement new 가 false 면 객체 생성(처음에 노드 생성할때만 생성자 호출) - 그 이후에는 안함!
-			if (!m_bPlacementNew)
+			if (!_bPlacementNew)
 				new(&newNode->data)DATA;
 
 			// 리스트 삭제를 위해 노드 정보들 모두 저장
@@ -218,7 +218,7 @@ namespace ldcity
 			// placement new 가 true 면 소멸자 호출된 것도 있고 안한 것도 있으므로
 			// map으로 소멸자 호출 여부 flag도 저장해서 정리하거나
 			// 배열이나 리스트라면 소멸자를 호출했는지 아닌지 확인하면서 호출
-			if (!m_bPlacementNew)
+			if (!_bPlacementNew)
 			{
 				node->data.~DATA();
 			}
@@ -243,7 +243,7 @@ namespace ldcity
 	void ObjectFreeList<DATA>::PoolType()
 	{
 		// 메모리 풀 주소값을 type으로 설정
-		m_type = (unsigned int)this;
+		_type = (unsigned int)this;
 	}
 
 	//////////////////////////////////////////////////////////////////////////
@@ -257,7 +257,7 @@ namespace ldcity
 	{
 		EnterCriticalSection(&poolLock);
 
-		m_iAllocCnt++;
+		_iAllocCnt++;
 
 		// 미사용 블럭(free block)이 있을 때
 		if (_pFreeBlockNode != nullptr)
@@ -269,10 +269,10 @@ namespace ldcity
 			_pFreeBlockNode = _pFreeBlockNode->next;
 
 			// 생성자 호출
-			if (m_bPlacementNew) new(object) DATA;
+			if (_bPlacementNew) new(object) DATA;
 
 			// 사용중인 블럭 개수 증가
-			m_iUseCount++;
+			_iUseCount++;
 
 			LeaveCriticalSection(&poolLock);
 			return object;
@@ -286,7 +286,7 @@ namespace ldcity
 		newNode->size = sizeof(DATA);
 		newNode->underflow = 0xfdfdfdfd;
 		newNode->overflow = 0xfdfdfdfd;
-		newNode->type = m_type;
+		newNode->type = _type;
 		newNode->next = nullptr;
 
 		DATA* object = &newNode->data;
@@ -295,12 +295,12 @@ namespace ldcity
 		new(object)DATA;
 
 		// 전체 블럭 개수 증가
-		m_iCapacity++;
+		_iCapacity++;
 
 		memoryBlocks.insert({ newNode, false });
 
 		// 사용중인 블럭 개수 증가
-		m_iUseCount++;
+		_iUseCount++;
 
 		LeaveCriticalSection(&poolLock);
 
@@ -322,7 +322,7 @@ namespace ldcity
 		st_MEMORY_BLOCK_NODE<DATA>* temp = (st_MEMORY_BLOCK_NODE<DATA>*)((char*)pData - sizeof(int) * 2);
 
 		// 메모리 풀과 type이 다를 경우
-		if (temp->type != m_type)
+		if (temp->type != _type)
 		{
 			wprintf(L"Pool Type Failed\n");
 			LeaveCriticalSection(&poolLock);
@@ -330,7 +330,7 @@ namespace ldcity
 		}
 
 		// 사용 중인 블럭이 없어서 더이상 해제할 블럭이 없을 경우
-		if (m_iUseCount == 0)
+		if (_iUseCount == 0)
 		{
 			wprintf(L"Free Failed.\n");
 			LeaveCriticalSection(&poolLock);
@@ -342,7 +342,7 @@ namespace ldcity
 			CRASH();
 
 		// 소멸자 호출 - placement new가 true이면 객체 반환할 때 소멸자 호출시켜야 함
-		if (m_bPlacementNew)
+		if (_bPlacementNew)
 		{
 			auto it = memoryBlocks.find(temp);
 			if (it != memoryBlocks.end())
@@ -353,7 +353,7 @@ namespace ldcity
 			else CRASH();
 		}
 
-		m_iFreeCnt++;
+		_iFreeCnt++;
 
 		if (_pFreeBlockNode == nullptr)
 		{
@@ -365,7 +365,7 @@ namespace ldcity
 			//memset(&_pFreeBlockNode->data, 0, sizeof(_pFreeBlockNode->data));
 
 			// 사용중인 블럭 개수 감소
-			m_iUseCount--;
+			_iUseCount--;
 
 			LeaveCriticalSection(&poolLock);
 
@@ -380,7 +380,7 @@ namespace ldcity
 		_pFreeBlockNode = temp;
 
 		// 사용중인 블럭 개수 감소
-		m_iUseCount--;
+		_iUseCount--;
 
 		LeaveCriticalSection(&poolLock);
 

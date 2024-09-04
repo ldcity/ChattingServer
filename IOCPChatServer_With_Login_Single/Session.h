@@ -15,7 +15,7 @@ const __int64 SESSION_INDEX_MASK = 0x00007FFFFFFFFFFF;
 struct stSESSION
 {
 	uint64_t sessionID;											// Session ID
-	SOCKET m_socketClient;										// Client Socket
+	SOCKET _socketClient;										// Client Socket
 	uint32_t IP_num;											// IP
 
 	wchar_t IP_str[20];											// String IP
@@ -25,8 +25,8 @@ struct stSESSION
 	DWORD Timeout;												// Last Recv Time
 	DWORD Timer;												// Timeout Timer
 
-	OVERLAPPED m_stRecvOverlapped;								// Recv Overlapped I/O Struct
-	OVERLAPPED m_stSendOverlapped;								// Send Overlapped I/O Struct
+	OVERLAPPED _stRecvOverlapped;								// Recv Overlapped I/O Struct
+	OVERLAPPED _stSendOverlapped;								// Send Overlapped I/O Struct
 
 	RingBuffer recvRingBuffer;									// Recv RingBuffer
 	LockFreeQueue<CPacket*> sendQ;								// Send LockFreeQueue
@@ -42,7 +42,7 @@ struct stSESSION
 	stSESSION()
 	{
 		sessionID = -1;
-		m_socketClient = INVALID_SOCKET;
+		_socketClient = INVALID_SOCKET;
 		ZeroMemory(IP_str, sizeof(IP_str));
 		IP_num = 0;
 		PORT = 0;
@@ -50,8 +50,8 @@ struct stSESSION
 		Timeout = 0;
 		Timer = 0;
 
-		ZeroMemory(&m_stRecvOverlapped, sizeof(OVERLAPPED));
-		ZeroMemory(&m_stSendOverlapped, sizeof(OVERLAPPED));
+		ZeroMemory(&_stRecvOverlapped, sizeof(OVERLAPPED));
+		ZeroMemory(&_stSendOverlapped, sizeof(OVERLAPPED));
 		recvRingBuffer.ClearBuffer();
 
 		sendPacketCount = 0;
@@ -70,15 +70,15 @@ struct stSESSION
 struct stLanSESSION
 {
 	uint64_t sessionID;											// Session ID
-	SOCKET m_socketClient;										// Client Socket
+	SOCKET _socketClient;										// Client Socket
 	uint32_t IP_num;											// Server IP
 
 	wchar_t IP_str[20];											// String IP
 
 	unsigned short PORT;										// Server PORT
 
-	OVERLAPPED m_stRecvOverlapped;								// Recv Overlapped I/O Struct
-	OVERLAPPED m_stSendOverlapped;								// Send Overlapped I/O Struct
+	OVERLAPPED _stRecvOverlapped;								// Recv Overlapped I/O Struct
+	OVERLAPPED _stSendOverlapped;								// Send Overlapped I/O Struct
 
 	RingBuffer recvRingBuffer;									// Recv RingBuffer
 	LockFreeQueue<CPacket*> sendQ;								// Send LockFreeQueue
@@ -94,13 +94,13 @@ struct stLanSESSION
 	stLanSESSION()
 	{
 		sessionID = -1;
-		m_socketClient = INVALID_SOCKET;
+		_socketClient = INVALID_SOCKET;
 		ZeroMemory(IP_str, sizeof(IP_str));
 		IP_num = 0;
 		PORT = 0;
 
-		ZeroMemory(&m_stRecvOverlapped, sizeof(OVERLAPPED));
-		ZeroMemory(&m_stSendOverlapped, sizeof(OVERLAPPED));
+		ZeroMemory(&_stRecvOverlapped, sizeof(OVERLAPPED));
+		ZeroMemory(&_stSendOverlapped, sizeof(OVERLAPPED));
 		recvRingBuffer.ClearBuffer();
 
 		sendPacketCount = 0;

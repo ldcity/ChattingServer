@@ -7,13 +7,13 @@
 class ThreadWorker
 {
 protected:
-    HANDLE mThreadHandle;
-    HANDLE mEventHandle;
-    bool mRunFlag;
+    HANDLE _threadHandle;
+    HANDLE _eventHandle;
+    bool _runFlag;
 
 public:
-    ThreadWorker() : mRunFlag(true), mThreadHandle(nullptr), mEventHandle(nullptr),
-        mJobThreadUpdateCnt(0) {}
+    ThreadWorker() : _runFlag(true), _threadHandle(nullptr), _eventHandle(nullptr),
+        _jobThreadUpdateCnt(0) {}
 
     virtual ~ThreadWorker()
     {
@@ -29,7 +29,7 @@ protected:
     // 잡큐 이벤트 발생
     void SignalEvent()
     {
-        SetEvent(mEventHandle);
+        SetEvent(_eventHandle);
     }
 
 public:
@@ -44,8 +44,8 @@ public:
 
     // 모니터링 데이터
 public:
-    __int64 mJobThreadUpdateCnt;
-    __int64 mJobThreadUpdateTPS;
+    __int64 _jobThreadUpdateCnt;
+    __int64 _jobThreadUpdateTPS;
 
 };
 

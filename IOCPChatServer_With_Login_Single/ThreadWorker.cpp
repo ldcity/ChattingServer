@@ -3,14 +3,14 @@
 
 bool ThreadWorker::StartThread(unsigned(__stdcall* threadFunc)(void*), LPVOID param)
 {
-    mEventHandle = CreateEvent(NULL, FALSE, FALSE, NULL);
-    if (mEventHandle == NULL)
+    _eventHandle = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (_eventHandle == NULL)
     {
         return false;
     }
 
-    mThreadHandle = (HANDLE)_beginthreadex(NULL, 0, threadFunc, param, 0, NULL);
-    if (mThreadHandle == NULL)
+    _threadHandle = (HANDLE)_beginthreadex(NULL, 0, threadFunc, param, 0, NULL);
+    if (_threadHandle == NULL)
     {
         return false;
     }
@@ -20,16 +20,16 @@ bool ThreadWorker::StartThread(unsigned(__stdcall* threadFunc)(void*), LPVOID pa
 
 void ThreadWorker::StopThread()
 {
-    mRunFlag = false;
+    _runFlag = false;
 
-    if (mThreadHandle)
+    if (_threadHandle)
     {
-        WaitForSingleObject(mThreadHandle, INFINITE);
+        WaitForSingleObject(_threadHandle, INFINITE);
 
-        if (mThreadHandle)
-            CloseHandle(mThreadHandle);
+        if (_threadHandle)
+            CloseHandle(_threadHandle);
 
-        if (mEventHandle)
-            CloseHandle(mEventHandle);
+        if (_eventHandle)
+            CloseHandle(_eventHandle);
     }
 }

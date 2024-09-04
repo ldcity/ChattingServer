@@ -46,8 +46,8 @@ public:
 	ChatServer();
 	~ChatServer();
 
-	bool ChatServerStart();
-	bool ChatServerStop();
+	bool ChatServer_Start();
+	bool ChatServer_Stop();
 
 	bool OnConnectionRequest(const wchar_t* IP, unsigned short PORT);
 	void OnClientJoin(uint64_t sessionID);
@@ -63,9 +63,9 @@ public:
 	{
 		Player* player = nullptr;
 
-		auto iter = m_mapPlayer.find(sessionID);
+		auto iter = _mapPlayer.find(sessionID);
 
-		if (iter == m_mapPlayer.end())
+		if (iter == _mapPlayer.end())
 		{
 			return nullptr;
 		}
@@ -80,8 +80,8 @@ public:
 	bool CheckPlayer(uint64_t sessionID, INT64 accountNo)
 	{
 		// accountNo 중복체크
-		auto accountIter = m_accountNo.find(accountNo);
-		if (accountIter != m_accountNo.end())
+		auto accountIter = _accountNo.find(accountNo);
+		if (accountIter != _accountNo.end())
 		{
 			Player* dupPlayer = FindPlayer(accountIter->second);
 
@@ -93,16 +93,17 @@ public:
 			DisconnectSession(dupPlayer->sessionID);
 		}
 
-		m_accountNo.insert({ accountNo, sessionID });
+		_accountNo.insert({ accountNo, sessionID });
 
 		return true;
 	}
+
 	//--------------------------------------------------------------------------------------
 	// Packet Proc
 	//--------------------------------------------------------------------------------------
-	bool PacketProc(uint64_t sessionID, CPacket* packet);
+	bool Packet_Proc(uint64_t sessionID, CPacket* packet);
 	void NetPacketProc_Login(uint64_t sessionID, CPacket* packet);			// 로그인 요청
-	void NetPacketProc_ResLogin(uint64_t sessionID, CPacket* packet);	// 로그인 응답
+	void NetPacketProc_ResLogin(uint64_t sessionID, CPacket* packet);		// 로그인 응답
 	void NetPacketProc_SectorMove(uint64_t sessionID, CPacket* packet);		// 섹터 이동 요청
 	void NetPacketProc_Chatting(uint64_t sessionID, CPacket* packet);		// 채팅 보내기
 	void NetPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet);		// 하트비트
@@ -111,69 +112,62 @@ private:
 	RedisWorkerThread* redisWorkerThread;
 
 private:
-	Log* chatLog;
+	Log* _chatLog;
 
-	int m_userMAXCnt;														// 최대 player 수
-	int m_timeout;															// 타임아웃 시간
+	int _userMAXCnt;										
+	int _timeout;										// 타임아웃 시간
 
-	HANDLE m_jobHandle;
-	HANDLE m_jobEvent;
+	HANDLE _jobHandle;
+	HANDLE _jobEvent;
 
-	HANDLE m_moniteringThread;							// Monitering Thread
+	HANDLE _moniteringThread;							// Monitering Thread
 
-	HANDLE m_moniterEvent;								// Monitering Event
-	HANDLE m_runEvent;									// Thread Start Event
+	HANDLE _moniterEvent;								// Monitering Event
+	HANDLE _runEvent;									// Thread Start Event
 
-	TLSObjectPool<Player> playerPool = TLSObjectPool<Player>(190);
+	TLSObjectPool<Player> _playerPool = TLSObjectPool<Player>(190);
 
-	TLSObjectPool<ChatJob> jobPool = TLSObjectPool<ChatJob>(290);
-	LockFreeQueue<ChatJob*> chatJobQ = LockFreeQueue<ChatJob*>(15000);
+	TLSObjectPool<ChatJob> _jobPool = TLSObjectPool<ChatJob>(290);
+	LockFreeQueue<ChatJob*> _chatJobQ = LockFreeQueue<ChatJob*>(15000);
 
-	std::unordered_map<uint64_t, Player*> m_mapPlayer;							// 전체 Player 객체
-	std::unordered_set<Player*> m_Sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];		// 각 섹터에 존재하는 Player 객체
-	std::unordered_map<int64_t, uint64_t> m_accountNo;
+	std::unordered_map<uint64_t, Player*> _mapPlayer;							// 전체 Player 객체
+	std::unordered_set<Player*> _sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];		// 각 섹터에 존재하는 Player 객체
+	std::unordered_map<int64_t, uint64_t> _accountNo;
 
 	friend unsigned __stdcall JobWorkerThread(PVOID param);					// Job 일 처리 스레드
 	friend unsigned __stdcall MoniteringThread(void* param);
 
-	bool JobWorkerThread_serv();
-	bool MoniterThread_serv();
+	bool JobWorkerThread_Serv();
+	bool MoniterThread_Serv();
 
-	// 모니터링 관련 변수들
+
+// 모니터링 관련 변수들
 private:
-	__int64 _totalPlayerCnt;												// player total
-	__int64 m_loginPlayerCnt;
-	int a;
-	__int64 m_loginCount;
-	__int64 m_loginTPS;
-
-	__int64 m_jobUpdatecnt;													// job 개수
-	__int64 m_jobUpdateTPS;											// job thread update 횟수
-
-	__int64 m_loginPacketTPS;
-	__int64 m_sectorMovePacketTPS;
-	__int64 m_chattingReqTPS;
-	__int64 m_chattingResTPS;
-	
-	__int64 m_timeoutTotalCnt;
-	__int64 m_timeoutCntTPS;
-	
-	__int64 m_deletePlayerCnt;
-	__int64 m_deletePlayerTPS;
-
-	__int64 m_redisJobThreadUpdateTPS;
-	__int64 m_jobThreadUpdateCnt;
-
-	__int64 m_loginResJobUpdateTPS;
-
-	bool startFlag;
+	__int64 _totalPlayerCnt;												
+	__int64 _loginPlayerCnt;
+	__int64 _loginCount;
+	__int64 _loginTPS;
+	__int64 _jobUpdatecnt;												
+	__int64 _jobUpdateTPS;			
+	__int64 _loginPacketTPS;
+	__int64 _sectorMovePacketTPS;
+	__int64 _chattingReqTPS;
+	__int64 _chattingResTPS;
+	__int64 _deletePlayerCnt;
+	__int64 _deletePlayerTPS;
+	__int64 _redisJobThreadUpdateTPS;
+	__int64 _jobThreadUpdateCnt;
+	__int64 _loginResJobUpdateTPS;
 
 private:
-	PerformanceMonitor performMoniter;
-	MonitoringLanClient lanClient;
+	PerformanceMonitor _performMoniter;
+	MonitoringLanClient _lanClient;
 
-	std::wstring m_tempIp;
-	std::string m_ip;
+	std::wstring _tempIp;
+	std::string _ip;
+
+private:
+	bool _startFlag;
 };
 
 
