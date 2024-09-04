@@ -143,7 +143,7 @@ private:
 private:
 	__int64 _totalPlayerCnt;												// player total
 	__int64 m_loginPlayerCnt;
-
+	int a;
 	__int64 m_loginCount;
 	__int64 m_loginTPS;
 
