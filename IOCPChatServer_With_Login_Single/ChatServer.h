@@ -141,7 +141,7 @@ private:
 
 	// 모니터링 관련 변수들
 private:
-	__int64 m_totalPlayerCnt;												// player total
+	__int64 _totalPlayerCnt;												// player total
 	__int64 m_loginPlayerCnt;
 
 	__int64 m_loginCount;

@@ -271,7 +271,7 @@ bool ChatServer::MoniterThread_serv()
 				packetPoolCapacity, packetPoolUseCnt, packetPoolAllocCnt, packetPoolFreeCnt);
 			wprintf(L"[Packet List          ] SectorMove : %10I64d      Chat      : %10I64d (Aroung Avg : %.2f)\n",
 				InterlockedExchange64(&m_sectorMovePacketTPS, 0), chatReq, (double)chatRes / chatReq);
-			wprintf(L"[Player               ] Create     : %10I64d      Login     : %10I64d\n", m_totalPlayerCnt, iLoginPlayerCnt);
+			wprintf(L"[Player               ] Create     : %10I64d      Login     : %10I64d\n", _totalPlayerCnt, iLoginPlayerCnt);
 			wprintf(L"[Delete               ] Total      : %10I64d      TPS       : %10I64d\n", m_deletePlayerCnt, InterlockedExchange64(&m_deletePlayerTPS, 0));
 			wprintf(L"==============================================================\n\n");
 
@@ -542,7 +542,7 @@ bool ChatServer::CreatePlayer(uint64_t sessionID)
 
 	m_mapPlayer.insert({ sessionID, player });		// 전체 Player를 관리하는 map에 insert
 
-	InterlockedIncrement64(&m_totalPlayerCnt);
+	InterlockedIncrement64(&_totalPlayerCnt);
 	InterlockedIncrement64(&m_loginPlayerCnt);
 
 	return true;
@@ -579,7 +579,7 @@ bool ChatServer::DeletePlayer(uint64_t sessionID)
 
 	playerPool.Free(player);		// PlayerPool에 player 반환
 
-	InterlockedDecrement64(&m_totalPlayerCnt);
+	InterlockedDecrement64(&_totalPlayerCnt);
 
 	return true;
 }

@@ -1,0 +1,18 @@
+﻿################################################################################
+# 이 .gitignore 파일은 Microsoft(R) Visual Studio에서 자동으로 만들어졌습니다.
+################################################################################
+
+/.vs/IOCPChatServer_With_Login_Single
+/IOCPChatServer_NotLogin_Multi
+/IOCPChatServer_NotLogin_Single/DummyClient/_ChatDummyLog
+/IOCPChatServer_NotLogin_Single/LOG
+/IOCPChatServer_NotLogin_Single/x64/Release/IOCPChat.bf963c82.tlog
+/IOCPChatServer_NotLogin_Single/x64/Release
+/IOCPChatServer_With_Login_Multi/LOG
+/IOCPChatServer_With_Login_Multi/x64/Release/IOCPChat.1ae64a0a.tlog
+/IOCPChatServer_With_Login_Multi/x64/Release
+/IOCPChatServer_With_Login_Single/LOG
+/IOCPChatServer_With_Login_Single/x64/Release/IOCPChat.0afe5e17.tlog
+/IOCPChatServer_With_Login_Single/x64/Release
+/IOCPChatServer_With_Login_Single
+/x64/Release
