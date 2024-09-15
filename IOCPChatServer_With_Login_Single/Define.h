@@ -42,7 +42,7 @@ struct Player
 	short sectorX;
 	short sectorY;
 	
-	DWORD recvLastTime;						// 하트비트 시간
+	DWORD recvLastTime;								// 하트비트 시간
 
 	Player() : sessionID(-1), accountNo(-1), sessionKey{ 0 }, ID{ 0 }, nickname{ 0 }, 
 		sectorX(-1), sectorY(-1), recvLastTime(0) {}

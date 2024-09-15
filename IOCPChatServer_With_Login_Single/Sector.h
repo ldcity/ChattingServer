@@ -24,13 +24,13 @@ struct st_SECTOR_AROUND
 
 
 // 특정 섹터 좌표 기준으로 주변 최대 9개의 섹터 좌표를 얻어옴
-inline void GetSectorAround(int iSectorX, int iSectorY, st_SECTOR_AROUND* pSectorAround)
+inline void GetSectorAround(int iSectorX, int iSectorY, st_SECTOR_AROUND& pSectorAround)
 {
 	// 현재 내 섹터에서 좌측상단부터 섹터 좌표를 얻기 위함
 	iSectorX--;
 	iSectorY--;
 
-	pSectorAround->iCount = 0;
+	pSectorAround.iCount = 0;
 
 	for (int iY = 0; iY < 3; iY++)
 	{
@@ -43,9 +43,9 @@ inline void GetSectorAround(int iSectorX, int iSectorY, st_SECTOR_AROUND* pSecto
 			if (iSectorX + iX < 0 || iSectorX + iX >= dfSECTOR_X_MAX)
 				continue;
 
-			pSectorAround->Around[pSectorAround->iCount].x = iSectorX + iX;
-			pSectorAround->Around[pSectorAround->iCount].y = iSectorY + iY;
-			++pSectorAround->iCount;
+			pSectorAround.Around[pSectorAround.iCount].x = iSectorX + iX;
+			pSectorAround.Around[pSectorAround.iCount].y = iSectorY + iY;
+			++pSectorAround.iCount;
 		}
 	}
 }

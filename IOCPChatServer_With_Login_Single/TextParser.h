@@ -8,10 +8,10 @@ private:
 	wchar_t* parsingTxt;
 	wchar_t* parsingStart;
 	wchar_t* blocksStart;				// 블럭의 시작 위치
-	wchar_t** tokens;				// . 토큰 분리한 문자열
-	wchar_t* blocksTxt;				// 블록(덩어리) 내용
-	int keyCnt;						// tokens 개수
-	unsigned long _size;			// 텍스트 전체 크기
+	wchar_t** tokens;					// . 토큰 분리한 문자열
+	wchar_t* blocksTxt;					// 블록(덩어리) 내용
+	int keyCnt;							// tokens 개수
+	unsigned long _size;				// 텍스트 전체 크기
 	FILE* fp;
 public:
 	TextParser();

@@ -89,36 +89,36 @@ private:
 	void ReleaseSession(stSESSION* pSession);
 
 	// uniqueID와 index로 고유한 SessionID 생성
-	uint64_t  CreateSessionID(uint64_t uniqueID, int index)
+	inline uint64_t  CreateSessionID(uint64_t uniqueID, int index)
 	{
 		return (uint64_t)((uint64_t)index | (uniqueID << SESSION_ID_BITS));
 	}
 
-	void ReleasePQCS(stSESSION* pSession)
+	inline void ReleasePQCS(stSESSION* pSession)
 	{
 		PostQueuedCompletionStatus(_iocpHandle, 0, (ULONG_PTR)pSession, (LPOVERLAPPED)PQCSTYPE::RELEASE);
 	}
 
-	int GetSessionIndex(uint64_t sessionID)
+	inline int GetSessionIndex(uint64_t sessionID)
 	{
 		return (int)(sessionID & SESSION_INDEX_MASK);
 	}
 
-	uint64_t GetSessionID(uint64_t sessionID)
+	inline uint64_t GetSessionID(uint64_t sessionID)
 	{
 		return (uint64_t)(sessionID >> SESSION_ID_BITS);
 	}
 
 	// 타임아웃 주기 : 현재 시간 ~ 서버의 타임아웃 시간 (ms 단위)
-	void SetTimeout(stSESSION* session)
+	inline void SetTimeout(stSESSION* session)
 	{
-		InterlockedExchange(&session->Timer, timeGetTime() + _timeout);
+		InterlockedExchange(&session->_timer, timeGetTime() + _timeout);
 	}
 
 	// 타임아웃 주기 : 현재 시간 ~ 매개변수로 받은 타임아웃 시간 (ms 단위)
-	void SetTimeout(stSESSION* session, DWORD timeout)
+	inline void SetTimeout(stSESSION* session, DWORD timeout)
 	{
-		InterlockedExchange(&session->Timer, timeGetTime() + timeout);
+		InterlockedExchange(&session->_timer, timeGetTime() + timeout);
 	}
 
 private:

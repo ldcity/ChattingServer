@@ -806,7 +806,7 @@ void ChatServer::NetPacketProc_Chatting(uint64_t sessionID, CPacket* packet)
 
 	// player가 존재하는 섹터의 주변 9개 섹터 구하기
 	st_SECTOR_AROUND sectorAround;
-	GetSectorAround(player->sectorX, player->sectorY, &sectorAround);
+	GetSectorAround(player->sectorX, player->sectorY, sectorAround);
 
 	// 주변 섹터에 존재하는 Player들에게 채팅 응답 패킷 전송
 	for (int i = 0; i < sectorAround.iCount; i++)

@@ -26,23 +26,6 @@ recvBytesTPS(0), sendBytesTPS(0), recvBytes(0), sendBytes(0), s_workerThreadCoun
 	// ========================================================================
 	wprintf(L"LanClient Initializing...\n");
 
-	mSession.sessionID = -1;
-	mSession._socketClient = INVALID_SOCKET;
-	ZeroMemory(mSession.IP_str, sizeof(mSession.IP_str));
-	mSession.IP_num = 0;
-	mSession.PORT = 0;
-	//LastRecvTime = 0;
-
-	ZeroMemory(&mSession._stRecvOverlapped, sizeof(OVERLAPPED));
-	ZeroMemory(&mSession._stSendOverlapped, sizeof(OVERLAPPED));
-	mSession.recvRingBuffer.ClearBuffer();
-
-	mSession.sendPacketCount = 0;
-	mSession.ioRefCount = 0;			// accept 이후 바로 recv 걸어버리기 때문에 항상 default가 1
-	mSession.sendFlag = false;
-	mSession.isDisconnected = false;
-	mSession.isUsed = false;
-
 	mOk = false;
 
 	logger = new Log(L"LanClient");
@@ -116,7 +99,7 @@ bool LanClient::Start(const wchar_t* IP, unsigned short PORT, int createWorkerTh
 bool LanClient::Connect()
 {
 	// 이미 접속중인 세션이 또 접속하면 안됨
-	if (mSession.isUsed == true)
+	if (mSession._isUsed == true)
 	{
 		DisconnectSession();
 		return false;
@@ -170,9 +153,6 @@ bool LanClient::Connect()
 	serverAddr.sin_family = AF_INET;
 	serverAddr.sin_port = htons(mPORT);
 	InetPtonW(AF_INET, mIP, &serverAddr.sin_addr);
-	
-	// 세션 참조 카운트를 올려줌
-	InterlockedExchange64(&mSession.ioRefCount, 1);
 
 	if (connect(mSession._socketClient, (SOCKADDR*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
 	{
@@ -188,17 +168,7 @@ bool LanClient::Connect()
 		return false;
 	}
 
-	// 링버퍼 내부에 남아있는 거 처리
-	mSession.recvRingBuffer.ClearBuffer();
-	ZeroMemory(&mSession._stSendOverlapped, sizeof(OVERLAPPED));
-	ZeroMemory(&mSession._stRecvOverlapped, sizeof(OVERLAPPED));
-
-	// 종료flag 셋팅
-	InterlockedExchange8((char*)&mSession.isDisconnected, false);
-
-	InterlockedExchange8((char*)&mSession.isUsed, true);
-
-	InterlockedExchange8((char*)&mSession.sendFlag, false);
+	mSession.Init();
 
 	if (CreateIoCompletionPort((HANDLE)mSession._socketClient, IOCPHandle, (ULONG_PTR)&mSession, 0) == NULL)
 	{
@@ -217,7 +187,7 @@ bool LanClient::Connect()
 	RecvPost();
 
 	// 올린 참조카운트 감소
-	if (0 == InterlockedDecrement64(&mSession.ioRefCount))
+	if (0 == InterlockedDecrement64(&mSession._ioRefCount))
 	{
 		ReleaseSession();
 	}
@@ -273,7 +243,7 @@ bool LanClient::LanWorkerThread_serv()
 		}
 
 		// I/O 완료 통지가 더이상 없다면 세션 해제 작업
-		if (0 == InterlockedDecrement64(&pSession->ioRefCount))
+		if (0 == InterlockedDecrement64(&pSession->_ioRefCount))
 		{
 			ReleaseSession();
 		}
@@ -285,9 +255,9 @@ bool LanClient::LanWorkerThread_serv()
 
 bool LanClient::RecvProc(long cbTransferred)
 {
-	mSession.recvRingBuffer.MoveWritePtr(cbTransferred);
+	mSession._recvRingBuffer.MoveWritePtr(cbTransferred);
 
-	int useSize = mSession.recvRingBuffer.GetUseSize();
+	int useSize = mSession._recvRingBuffer.GetUseSize();
 
 	// Recv Message Process
 	while (useSize > 0)
@@ -299,7 +269,7 @@ bool LanClient::RecvProc(long cbTransferred)
 			break;
 
 		// Header Peek
-		mSession.recvRingBuffer.Peek((char*)&header, sizeof(LANHeader));
+		mSession._recvRingBuffer.Peek((char*)&header, sizeof(LANHeader));
 
 		// Len 확인 (페이로드 길이 확인)
 		if (header.len <= 0 || header.len > CPacket::en_PACKET::eBUFFER_DEFAULT)
@@ -313,7 +283,7 @@ bool LanClient::RecvProc(long cbTransferred)
 		if (useSize < sizeof(LANHeader) + header.len)
 		{
 			//// 패킷 길이가 남은 링버퍼 사이즈보다 크면 안됨
-			//if (header.len > mSession.recvRingBuffer.GetFreeSize())
+			//if (header.len > mSession._recvRingBuffer.GetFreeSize())
 			//{
 			//	DisconnectSession();
 			//	return false;
@@ -326,7 +296,7 @@ bool LanClient::RecvProc(long cbTransferred)
 		CPacket* packet = CPacket::Alloc();
 
 		// payload 크기만큼 데이터 Dequeue
-		mSession.recvRingBuffer.Dequeue(packet->GetLanBufferPtr(), header.len + CPacket::en_PACKET::LAN_HEADER_SIZE);
+		mSession._recvRingBuffer.Dequeue(packet->GetLanBufferPtr(), header.len + CPacket::en_PACKET::LAN_HEADER_SIZE);
 
 		// payload 크기만큼 packet write pos 이동
 		packet->MoveWritePos(header.len);
@@ -346,7 +316,7 @@ bool LanClient::RecvProc(long cbTransferred)
 		// 컨텐츠 쪽 recv 처리
 		OnRecv(packet);
 
-		useSize = mSession.recvRingBuffer.GetUseSize();
+		useSize = mSession._recvRingBuffer.GetUseSize();
 	}
 
 	// Recv 재등록
@@ -359,17 +329,17 @@ bool LanClient::RecvProc(long cbTransferred)
 bool LanClient::SendProc(long cbTransferred)
 {
 	// sendPost에서 사이즈 0일 경우를 걸러냈는데도 이 조건이 발생하는 경우는 error
-	if (mSession.sendPacketCount == 0)
+	if (mSession._sendPacketCount == 0)
 		CRASH();
 
 	int totalSendBytes = 0;
 	int iSendCount;
 
 	// send 완료 통지된 패킷 제거
-	for (iSendCount = 0; iSendCount < mSession.sendPacketCount; iSendCount++)
+	for (iSendCount = 0; iSendCount < mSession._sendPacketCount; iSendCount++)
 	{
-		totalSendBytes += mSession.SendPackets[iSendCount]->GetDataSize();
-		CPacket::Free(mSession.SendPackets[iSendCount]);
+		totalSendBytes += mSession._sendPackets[iSendCount]->GetDataSize();
+		CPacket::Free(mSession._sendPackets[iSendCount]);
 	}
 
 	// Total Send Bytes
@@ -379,21 +349,21 @@ bool LanClient::SendProc(long cbTransferred)
 	InterlockedAdd64((long long*)&sendBytesTPS, totalSendBytes);
 
 	// Total Send Message Count
-	InterlockedAdd64((long long*)&sendMsgCount, mSession.sendPacketCount);
+	InterlockedAdd64((long long*)&sendMsgCount, mSession._sendPacketCount);
 
 	// Send Message TPS
-	InterlockedAdd64((long long*)&sendMsgTPS, mSession.sendPacketCount);
+	InterlockedAdd64((long long*)&sendMsgTPS, mSession._sendPacketCount);
 
-	mSession.sendPacketCount = 0;
+	mSession._sendPacketCount = 0;
 
 	// 전송 중 flag를 다시 미전송 상태로 되돌리기
-	InterlockedExchange8((char*)&mSession.sendFlag, false);
+	InterlockedExchange8((char*)&mSession._sendFlag, false);
 
 	// 1회 send 후, sendQ에 쌓여있던 나머지 데이터 모두 send
-	if (mSession.sendQ.GetSize() > 0)
+	if (mSession._sendQ.GetSize() > 0)
 	{
 		// sendFlag가 false인걸 한번 확인한 다음에 인터락 비교 (어느정도 이 사이에 true인 경우가 걸러져서 인터락 call 줄임)
-		if (mSession.sendFlag == false)
+		if (mSession._sendFlag == false)
 		{
 			SendPost();
 			//if (false == InterlockedExchange8((char*)&sendFlag, true))
@@ -412,10 +382,10 @@ bool LanClient::RecvPost()
 {
 	// recv 걸기 전에 외부에서 disconnect 호출될 수 있음
 	// -> recv 안 걸렸을 때 io 취소해도 의미 없으니까 사전에 recvpost 막아버림
-	if (mSession.isDisconnected)
+	if (mSession._isDisconnected)
 		return false;
 
-	if (mSession.recvRingBuffer.GetFreeSize() <= 0)
+	if (mSession._recvRingBuffer.GetFreeSize() <= 0)
 	{
 		DisconnectSession();
 
@@ -427,19 +397,19 @@ bool LanClient::RecvPost()
 	int wsaCnt = 1;
 	DWORD flags = 0;
 
-	int freeSize = mSession.recvRingBuffer.GetFreeSize();
-	int directEequeueSize = mSession.recvRingBuffer.DirectEnqueueSize();
+	int freeSize = mSession._recvRingBuffer.GetFreeSize();
+	int directEequeueSize = mSession._recvRingBuffer.DirectEnqueueSize();
 
 	if (freeSize == 0)
 		return false;
 
-	wsa[0].buf = mSession.recvRingBuffer.GetWriteBufferPtr();
+	wsa[0].buf = mSession._recvRingBuffer.GetWriteBufferPtr();
 	wsa[0].len = directEequeueSize;
 
 	// 링버퍼 내부에서 빈 공간이 두 섹션으로 나뉠 경우
 	if (freeSize > directEequeueSize)
 	{
-		wsa[1].buf = mSession.recvRingBuffer.GetBufferPtr();
+		wsa[1].buf = mSession._recvRingBuffer.GetBufferPtr();
 		wsa[1].len = freeSize - directEequeueSize;
 		++wsaCnt;
 	}
@@ -449,7 +419,7 @@ bool LanClient::RecvPost()
 
 	// recv
 	// ioCount : WSARecv 완료 통지가 리턴보다 먼저 떨어질 수 있으므로 WSARecv 호출 전에 증가시켜야 함
-	InterlockedIncrement64(&mSession.ioRefCount);
+	InterlockedIncrement64(&mSession._ioRefCount);
 	int recvRet = WSARecv(mSession._socketClient, wsa, wsaCnt, NULL, &flags, &mSession._stRecvOverlapped, NULL);
 	InterlockedIncrement64(&recvCallCount);
 	InterlockedIncrement64(&recvCallTPS);
@@ -468,7 +438,7 @@ bool LanClient::RecvPost()
 			}
 
 			// Pending이 아닐 경우, 완료 통지 실패
-			if (0 == InterlockedDecrement64(&mSession.ioRefCount))
+			if (0 == InterlockedDecrement64(&mSession._ioRefCount))
 			{
 				ReleaseSession();
 			}
@@ -480,7 +450,7 @@ bool LanClient::RecvPost()
 			InterlockedIncrement64(&recvPendingTPS);
 
 			// Pending 걸렸는데, 이 시점에 disconnect되면 이 때 남아있던 비동기 io 정리해줘야함
-			if (mSession.isDisconnected)
+			if (mSession._isDisconnected)
 			{
 				CancelIoEx((HANDLE)mSession._socketClient, &mSession._stRecvOverlapped);
 			}
@@ -497,12 +467,12 @@ bool LanClient::SendPost()
 	// true면 최조 사용 아님
 	// false -> true 면 최초 사용
 	// true -> true 면 최초 사용이 아님
-	if ((mSession.sendFlag == true) || true == InterlockedExchange8((char*)&mSession.sendFlag, true))
+	if ((mSession._sendFlag == true) || true == InterlockedExchange8((char*)&mSession._sendFlag, true))
 		return false;
 
 	// SendQ가 비어있을 수 있음
 	// -> 다른 스레드에서 Dequeue 진행했을 경우
-	if (mSession.sendQ.GetSize() <= 0)
+	if (mSession._sendQ.GetSize() <= 0)
 	{
 		// * 일어날 수 있는 상황
 		// 다른 스레드에서 dequeue를 전부 해서 size가 0이 돼서 이 조건문에 진입한건데
@@ -512,15 +482,15 @@ bool LanClient::SendPost()
 		// sendQ에 패킷이 있는 상태이므로 sendFlas를 false로 바꿔주기만 하고 리턴하는게 아니라
 		// 한번 더 sendQ의 size 확인 후 sendpost PQCS 날릴 지 결졍
 
-		InterlockedExchange8((char*)&mSession.sendFlag, false);
+		InterlockedExchange8((char*)&mSession._sendFlag, false);
 
 		// 그 사이에 SendQ에 Enqueue 됐다면 다시 SendPost Call 
-		if (mSession.sendQ.GetSize() > 0)
+		if (mSession._sendQ.GetSize() > 0)
 		{
 			// sendpost 함수 내에서 send call을 1회 제한함
 			// sendpost 함수를 호출하기 위한 PQCS도 1회 제한을 둬야 성능 개선됨
 			// -> 그렇지 않을 경우, sendpacket 오는대로 계속 PQCS 호출하게 되어 성능이 생각한대로 안나올 수 있음 
-			if (mSession.sendFlag == false)
+			if (mSession._sendFlag == false)
 			{
 				SendPost();
 				//if (false == InterlockedExchange8((char*)&sendFlag, true))
@@ -540,13 +510,13 @@ bool LanClient::SendPost()
 
 	int totalSendSize = 0;
 
-	while (mSession.sendQ.Dequeue(mSession.SendPackets[deqIdx]))
+	while (mSession._sendQ.Dequeue(mSession._sendPackets[deqIdx]))
 	{
 		// 패킷 시작 포인터 (헤더가 시작점)
-		wsa[deqIdx].buf = mSession.SendPackets[deqIdx]->GetLanBufferPtr();
+		wsa[deqIdx].buf = mSession._sendPackets[deqIdx]->GetLanBufferPtr();
 
 		// 패킷 크기 (헤더 포함)
-		wsa[deqIdx].len = mSession.SendPackets[deqIdx]->GetLanDataSize();
+		wsa[deqIdx].len = mSession._sendPackets[deqIdx]->GetLanDataSize();
 
 		totalSendSize += wsa[deqIdx].len;
 
@@ -556,14 +526,14 @@ bool LanClient::SendPost()
 			break;
 	}
 	
- 	mSession.sendPacketCount = deqIdx;
+ 	mSession._sendPacketCount = deqIdx;
 
 	// send overlapped I/O 구조체 reset
 	ZeroMemory(&mSession._stSendOverlapped, sizeof(OVERLAPPED));
 
 	// send
 	// ioCount : WSASend 완료 통지가 리턴보다 먼저 떨어질 수 있으므로 WSASend 호출 전에 증가시켜야 함
-	InterlockedIncrement64(&mSession.ioRefCount);
+	InterlockedIncrement64(&mSession._ioRefCount);
 	int sendRet = WSASend(mSession._socketClient, wsa, deqIdx, NULL, 0, &mSession._stSendOverlapped, NULL);
 	InterlockedIncrement64(&sendCallCount);
 	InterlockedIncrement64(&sendCallTPS);
@@ -582,7 +552,7 @@ bool LanClient::SendPost()
 			}
 
 			// Pending이 아닐 경우, 완료 통지 실패 -> IOCount값 복원
-			if (0 == InterlockedDecrement64(&mSession.ioRefCount))
+			if (0 == InterlockedDecrement64(&mSession._ioRefCount))
 			{
 				ReleaseSession();
 			}
@@ -602,7 +572,7 @@ bool LanClient::SendPacket(CPacket* packet)
 	// 세션 사용 참조카운트 증가 & Release 중인지 동시 확인
 	// Release 비트값이 1이면 ReleaseSession 함수에서 ioCount = 0, releaseFlag = 1 인 상태
 	// 어처피 다시 release가서 해제될 세션이므로 ioRefCount 감소시키지 않아도 됨
-	if (InterlockedIncrement64(&mSession.ioRefCount) & RELEASEMASKING)
+	if (InterlockedIncrement64(&mSession._ioRefCount) & RELEASEMASKING)
 	{
 		return false;
 	}
@@ -611,9 +581,9 @@ bool LanClient::SendPacket(CPacket* packet)
 	// Release 수행 없이 이곳에서만 세션 사용하려는 상태
 
 	// 외부에서 disconnect 하는 상태
-	if (mSession.isDisconnected)
+	if (mSession._isDisconnected)
 	{
-		if (0 == InterlockedDecrement64(&mSession.ioRefCount))
+		if (0 == InterlockedDecrement64(&mSession._ioRefCount))
 		{
 			//ReleasePQCS();
 			ReleaseSession();
@@ -629,12 +599,12 @@ bool LanClient::SendPacket(CPacket* packet)
 	packet->addRefCnt();
 
 	// packet 포인터 enqueue
-	mSession.sendQ.Enqueue(packet);
+	mSession._sendQ.Enqueue(packet);
 
 	// sendpost 함수 내에서 send call을 1회 제한함
 	// sendpost 함수를 호출하기 위한 PQCS도 1회 제한을 둬야 성능 개선됨
 	// -> 그렇지 않을 경우, sendpacket 오는대로 계속 PQCS 호출하게 되어 성능이 생각한대로 안나올 수 있음 
-	if (mSession.sendFlag == false)
+	if (mSession._sendFlag == false)
 	{
 		SendPost();
 		//if (false == InterlockedExchange8((char*)&sendFlag, true))
@@ -645,7 +615,7 @@ bool LanClient::SendPacket(CPacket* packet)
 	}
 
 	// sendPacket 함수에서 증가시킨 세션 참조 카운트 감소
-	if (0 == InterlockedDecrement64(&mSession.ioRefCount))
+	if (0 == InterlockedDecrement64(&mSession._ioRefCount))
 	{
 		//ReleasePQCS();
 		ReleaseSession();
@@ -662,7 +632,7 @@ void LanClient::ReleaseSession()
 	// 세선 해제
 	// ioCount == 0 && releaseFlag == 0 => release = 1 (인터락 함수로 해결)
 	// 다른 곳에서 해당 세션을 사용(sendpacket or disconnect)하는지 확인
-	if (InterlockedCompareExchange64(&mSession.ioRefCount, RELEASEMASKING, 0) != 0)
+	if (InterlockedCompareExchange64(&mSession._ioRefCount, RELEASEMASKING, 0) != 0)
 	{
 		return;
 	}
@@ -672,53 +642,13 @@ void LanClient::ReleaseSession()
 	//-----------------------------------------------------------------------------------
 	//ioCount = 0, releaseFlag = 1 인 상태
 
-	uint64_t _sessionID = mSession.sessionID;
-
-	mSession.sessionID = -1;
-
+	uint64_t _sessionID = mSession._sessionID;
 	SOCKET sock = mSession._socketClient;
 
-	// 소켓 Invalid 처리하여 더이상 해당 소켓으로 I/O 못받게 함
-	mSession._socketClient = INVALID_SOCKET;
-
-	InterlockedExchange8((char*)&mSession.sendFlag, false);
+	mSession.Release();
 
 	// recv는 더이상 받으면 안되므로 소켓 close
 	closesocket(sock);
-
-	// Send Packet 관련 리소스 정리
-	// SendQ에서 Dqeueue하여 SendPacket 배열에 넣었지만 아직 WSASend 못해서 남아있는 패킷 정리
-	for (int iSendCount = 0; iSendCount < mSession.sendPacketCount; iSendCount++)
-	{
-		CPacket::Free(mSession.SendPackets[iSendCount]);
-	}
-
-	mSession.sendPacketCount = 0;
-
-	// SendQ에 남아있다는 건 WSABUF에 꽂아넣지도 못한 상태 
-	if (mSession.sendQ.GetSize() > 0)
-	{
-		CPacket* packet = nullptr;
-		while (mSession.sendQ.Dequeue(packet))
-		{
-			CPacket::Free(packet);
-		}
-	}
-
-	ZeroMemory(mSession.IP_str, sizeof(mSession.IP_str));
-	mSession.IP_num = 0;
-	mSession.PORT = 0;
-	//LastRecvTime = 0;
-
-	ZeroMemory(&mSession._stRecvOverlapped, sizeof(OVERLAPPED));
-	ZeroMemory(&mSession._stSendOverlapped, sizeof(OVERLAPPED));
-	mSession.recvRingBuffer.ClearBuffer();
-
-	mSession.ioRefCount = 0;			// accept 이후 바로 recv 걸어버리기 때문에 항상 default가 1
-	
-	InterlockedExchange64(&mSession.ioRefCount, 0);
-	InterlockedExchange8((char*)&mSession.isDisconnected, false);
-	InterlockedExchange8((char*)&mSession.isUsed, false);
 
 	// 사용자(Player) 관련 리소스 해제 (호출 후에 해당 세션이 사용되면 안됨)
 	OnClientLeave();
@@ -729,7 +659,7 @@ bool LanClient::DisconnectSession()
 	// 세션 사용 참조카운트 증가 & Release 중인지 동시 확인
 	// Release 비트값이 1이면 ReleaseSession 함수에서 ioCount = 0, releaseFlag = 1 인 상태
 	// 어처피 다시 release가서 해제될 세션이므로 ioRefCount 감소시키지 않아도 됨
-	if (InterlockedIncrement64(&mSession.ioRefCount) & RELEASEMASKING)
+	if (InterlockedIncrement64(&mSession._ioRefCount) & RELEASEMASKING)
 	{
 		return false;
 	}
@@ -737,9 +667,9 @@ bool LanClient::DisconnectSession()
 	// Release 수행 없이 이곳에서만 세션 사용하려는 상태
 
 	// 외부에서 disconnect 하는 상태
-	if (mSession.isDisconnected)
+	if (mSession._isDisconnected)
 	{
-		if (0 == InterlockedDecrement64(&mSession.ioRefCount))
+		if (0 == InterlockedDecrement64(&mSession._ioRefCount))
 		{
 			ReleaseSession();
 			// ReleasePQCS();
@@ -753,13 +683,13 @@ bool LanClient::DisconnectSession()
 	// 재할당되어 다른 세션이 될 수 있음
 	// 그때 재할당된 세션의 IO 작업들이 CancelIoEx에 의해 제거되는 문제 발생
 	// disconnected flag를 true로 변경하면 sendPacket 과 recvPost 함수 진입을 막음
-	InterlockedExchange8((char*)&mSession.isDisconnected, true);
+	InterlockedExchange8((char*)&mSession._isDisconnected, true);
 
 	// 현재 IO 작업 모두 취소
 	CancelIoEx((HANDLE)mSession._socketClient, NULL);
 
 	// Disconnect 함수에서 증가시킨 세션 참조 카운트 감소
-	if (0 == InterlockedDecrement64(&mSession.ioRefCount))
+	if (0 == InterlockedDecrement64(&mSession._ioRefCount))
 	{
 		ReleaseSession();
 		//ReleasePQCS();
