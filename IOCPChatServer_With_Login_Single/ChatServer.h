@@ -49,12 +49,12 @@ public:
 	bool ChatServer_Start();
 	bool ChatServer_Stop();
 
-	bool OnConnectionRequest(const wchar_t* IP, unsigned short PORT);
-	void OnClientJoin(uint64_t sessionID);
-	void OnClientLeave(uint64_t sessionID);
-	void OnRecv(uint64_t sessionID, CPacket* packet);
-	void OnTimeout(uint64_t sessionID);
-	void OnError(int errorCode, const wchar_t* msg);
+	bool OnConnectionRequest(const wchar_t* IP, unsigned short PORT) override;
+	void OnClientJoin(uint64_t sessionID) override;
+	void OnClientLeave(uint64_t sessionID) override;
+	void OnRecv(uint64_t sessionID, CPacket* packet) override;
+	void OnTimeout(uint64_t sessionID) override;
+	void OnError(int errorCode, const wchar_t* msg) override;
 
 	//--------------------------------------------------------------------------------------
 	// player 관련 함수
@@ -108,6 +108,12 @@ public:
 	void NetPacketProc_Chatting(uint64_t sessionID, CPacket* packet);		// 채팅 보내기
 	void NetPacketProc_HeartBeat(uint64_t sessionID, CPacket* packet);		// 하트비트
 
+	friend unsigned __stdcall JobWorkerThread(PVOID param);					// Job 일 처리 스레드
+	friend unsigned __stdcall MoniteringThread(void* param);
+
+	bool JobWorkerThread_Serv();
+	bool MoniterThread_Serv();
+
 private:
 	RedisWorkerThread* redisWorkerThread;
 
@@ -133,13 +139,6 @@ private:
 	std::unordered_map<uint64_t, Player*> _mapPlayer;							// 전체 Player 객체
 	std::unordered_set<Player*> _sector[dfSECTOR_Y_MAX][dfSECTOR_X_MAX];		// 각 섹터에 존재하는 Player 객체
 	std::unordered_map<int64_t, uint64_t> _accountNo;
-
-	friend unsigned __stdcall JobWorkerThread(PVOID param);					// Job 일 처리 스레드
-	friend unsigned __stdcall MoniteringThread(void* param);
-
-	bool JobWorkerThread_Serv();
-	bool MoniterThread_Serv();
-
 
 // 모니터링 관련 변수들
 private:

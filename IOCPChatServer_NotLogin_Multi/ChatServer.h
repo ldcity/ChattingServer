@@ -18,11 +18,11 @@ public:
 	bool ChatServerStop();
 
 	// NetServer의 가상 함수 재정의
-	bool OnConnectionRequest(const wchar_t* IP, unsigned short PORT);	
-	void OnClientJoin(uint64_t sessionID);	
-	void OnClientLeave(uint64_t sessionID);			
-	void OnRecv(uint64_t sessionID, CPacket* packet);
-	void OnError(int errorCode, const wchar_t* msg);
+	bool OnConnectionRequest(const wchar_t* IP, unsigned short PORT) override;
+	void OnClientJoin(uint64_t sessionID) override;
+	void OnClientLeave(uint64_t sessionID) override;
+	void OnRecv(uint64_t sessionID, CPacket* packet) override;
+	void OnError(int errorCode, const wchar_t* msg) override;
 
 	//--------------------------------------------------------------------------------------
 	// player 관련 함수
